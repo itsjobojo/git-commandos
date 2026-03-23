@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tile Map Editor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Sidebar */
+    #sidebar {
+      width: 360px;
+      min-width: 360px;
+      background: #16213e;
+      border-right: 2px solid #0f3460;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #sidebar h2 {
+      padding: 10px 14px;
+      font-size: 14px;
+      color: #e94560;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+
+    #palette-info {
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #888;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+      min-height: 28px;
+    }
+
+    #palette-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+
+    #palette-canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      cursor: crosshair;
+      display: block;
+    }
+
+    #controls {
+      padding: 10px 14px;
+      border-top: 1px solid #0f3460;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    #controls .row {
+      display: flex;
+      gap: 6px;
+    }
+
+    button {
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #533483;
+      padding: 6px 12px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    button:hover { background: #533483; }
+    button:active { background: #e94560; }
+
+    #selected-tile-preview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-top: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+
+    #selected-tile-preview canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      border: 1px solid #e94560;
+    }
+
+    /* Main area */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      padding: 8px 14px;
+      background: #16213e;
+      border-bottom: 2px solid #0f3460;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    #toolbar span {
+      color: #888;
+      font-size: 12px;
+    }
+
+    #map-scroll {
+      flex: 1;
+      overflow: auto;
+      background: #0a0a1a;
+    }
+
+    #map-canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      cursor: crosshair;
+      display: block;
+    }
+
+    /* Modal */
+    #modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    #modal-overlay.active { display: flex; }
+
+    #modal {
+      background: #16213e;
+      border: 2px solid #0f3460;
+      border-radius: 6px;
+      padding: 20px;
+      width: 700px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    #modal h3 { color: #e94560; }
+
+    #modal textarea {
+      background: #0a0a1a;
+      color: #e0e0e0;
+      border: 1px solid #0f3460;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+      padding: 10px;
+      resize: vertical;
+      min-height: 300px;
+      border-radius: 3px;
+    }
+
+    #modal .modal-buttons {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    #grid-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    #grid-toggle input {
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>Tile Palette</h2>
+  <div id="palette-info">Hover a tile to see coordinates</div>
+  <div id="selected-tile-preview">
+    <canvas id="preview-canvas" width="32" height="32"></canvas>
+    <span id="selected-label">Selected: [0, 0]</span>
+  </div>
+  <div id="palette-wrap">
+    <canvas id="palette-canvas"></canvas>
+  </div>
+  <div id="controls">
+    <div class="row">
+      <button onclick="exportMap()">Export</button>
+      <button onclick="openImport()">Import</button>
+    </div>
+    <div class="row">
+      <button onclick="addRow()">+ Add Row</button>
+      <button onclick="removeRow()">- Remove Row</button>
+      <button onclick="clearMap()">Clear Map</button>
+    </div>
+    <div class="row">
+      <button onclick="fillSelection()">Fill All with Selected</button>
+    </div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <span id="map-info">Map: 16 x 26 | Tile: —</span>
+    <div id="grid-toggle">
+      <input type="checkbox" id="show-grid" checked>
+      <label for="show-grid">Grid</label>
+    </div>
+    <label style="display:flex;align-items:center;gap:4px;">
+      Brush:
+      <select id="brush-size" style="background:#0f3460;color:#e0e0e0;border:1px solid #533483;font-family:inherit;font-size:12px;padding:2px 6px;border-radius:3px;">
+        <option value="1" selected>1×1</option>
+        <option value="2">2×2</option>
+        <option value="3">3×3</option>
+      </select>
+    </label>
+    <span style="flex:1"></span>
+    <span>LMB: paint | RMB: eyedropper (picks brush area) | 1/2/3: brush size</span>
+  </div>
+  <div id="map-scroll">
+    <canvas id="map-canvas"></canvas>
+  </div>
+</div>
+
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div id="modal">
+    <h3 id="modal-title">Export</h3>
+    <textarea id="modal-textarea" spellcheck="false"></textarea>
+    <div class="modal-buttons">
+      <button id="modal-action-btn" onclick="modalAction()">Copy</button>
+      <button onclick="closeModalForce()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config ──
+const TILE_SIZE = 16;
+const TILE_SPACING = 1;
+const TILE_STEP = TILE_SIZE + TILE_SPACING; // 17
+const TILEMAP_COLS = 18;
+const TILEMAP_ROWS = 13;
+const MAP_COLS = 16;
+const PALETTE_SCALE = 2;
+const MAP_SCALE = 2;
+const GRID_COLOR = 'rgba(255,255,255,0.15)';
+const HIGHLIGHT_COLOR = 'rgba(233, 69, 96, 0.5)';
+
+let mapRows = 26; // initial row count
+let mapData = []; // 2D array of [col, row]
+let selectedTile = [1, 3]; // default sand — for 1x1
+let selectedBlock = null; // for 2x2/3x3 — array of [col,row] offsets from palette
+let painting = false;
+let tilemapImg = null;
+
+function getBrushSize() {
+  return parseInt(document.getElementById('brush-size').value);
+}
+
+// ── Init map data ──
+function initMap(rows) {
+  mapData = [];
+  for (let r = 0; r < rows; r++) {
+    const row = [];
+    for (let c = 0; c < MAP_COLS; c++) {
+      row.push([1, 3]); // default sand
+    }
+    mapData.push(row);
+  }
+  mapRows = rows;
+}
+initMap(mapRows);
+
+// ── Load tilemap ──
+const tilemapSrc = '/sprites/tilemap.png';
+tilemapImg = new Image();
+tilemapImg.onload = () => {
+  initPalette();
+  renderPalette();
+  resizeMapCanvas();
+  renderMap();
+  updatePreview();
+};
+tilemapImg.src = tilemapSrc;
+
+// ── Palette ──
+const paletteCanvas = document.getElementById('palette-canvas');
+const paletteCtx = paletteCanvas.getContext('2d');
+const paletteInfo = document.getElementById('palette-info');
+
+function initPalette() {
+  paletteCanvas.width = TILEMAP_COLS * TILE_SIZE * PALETTE_SCALE;
+  paletteCanvas.height = TILEMAP_ROWS * TILE_SIZE * PALETTE_SCALE;
+  paletteCtx.imageSmoothingEnabled = false;
+}
+
+function renderPalette(hoverCol, hoverRow) {
+  if (!tilemapImg) return;
+  paletteCtx.clearRect(0, 0, paletteCanvas.width, paletteCanvas.height);
+
+  for (let r = 0; r < TILEMAP_ROWS; r++) {
+    for (let c = 0; c < TILEMAP_COLS; c++) {
+      const sx = c * TILE_STEP;
+      const sy = r * TILE_STEP;
+      const dx = c * TILE_SIZE * PALETTE_SCALE;
+      const dy = r * TILE_SIZE * PALETTE_SCALE;
+
+      paletteCtx.drawImage(
+        tilemapImg,
+        sx, sy, TILE_SIZE, TILE_SIZE,
+        dx, dy, TILE_SIZE * PALETTE_SCALE, TILE_SIZE * PALETTE_SCALE
+      );
+
+      // Highlight hover block
+      const hSize = getBrushSize();
+      if (hoverCol !== undefined && hoverRow !== undefined &&
+          c >= hoverCol && c < hoverCol + hSize &&
+          r >= hoverRow && r < hoverRow + hSize) {
+        paletteCtx.fillStyle = 'rgba(255,255,255,0.2)';
+        paletteCtx.fillRect(dx, dy, TILE_SIZE * PALETTE_SCALE, TILE_SIZE * PALETTE_SCALE);
+      }
+    }
+  }
+
+  // Draw selected block outline
+  const selSize = getBrushSize();
+  const selDx = selectedTile[0] * TILE_SIZE * PALETTE_SCALE;
+  const selDy = selectedTile[1] * TILE_SIZE * PALETTE_SCALE;
+  paletteCtx.strokeStyle = '#e94560';
+  paletteCtx.lineWidth = 2;
+  paletteCtx.strokeRect(
+    selDx + 1, selDy + 1,
+    selSize * TILE_SIZE * PALETTE_SCALE - 2,
+    selSize * TILE_SIZE * PALETTE_SCALE - 2
+  );
+}
+
+function paletteCoordsFromEvent(e) {
+  const rect = paletteCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const col = Math.floor(x / (TILE_SIZE * PALETTE_SCALE));
+  const row = Math.floor(y / (TILE_SIZE * PALETTE_SCALE));
+  if (col < 0 || col >= TILEMAP_COLS || row < 0 || row >= TILEMAP_ROWS) return null;
+  return [col, row];
+}
+
+paletteCanvas.addEventListener('mousemove', (e) => {
+  const coords = paletteCoordsFromEvent(e);
+  if (coords) {
+    paletteInfo.textContent = `Tile: [${coords[0]}, ${coords[1]}]`;
+    renderPalette(coords[0], coords[1]);
+  } else {
+    paletteInfo.textContent = 'Hover a tile to see coordinates';
+    renderPalette();
+  }
+});
+
+paletteCanvas.addEventListener('mouseleave', () => {
+  paletteInfo.textContent = 'Hover a tile to see coordinates';
+  renderPalette();
+});
+
+paletteCanvas.addEventListener('click', (e) => {
+  const coords = paletteCoordsFromEvent(e);
+  if (!coords) return;
+  const size = getBrushSize();
+
+  if (size === 1) {
+    selectedTile = coords;
+    selectedBlock = null;
+  } else {
+    // Pick NxN block from tilemap palette
+    const block = [];
+    for (let dr = 0; dr < size; dr++) {
+      const row = [];
+      for (let dc = 0; dc < size; dc++) {
+        const c = Math.min(coords[0] + dc, TILEMAP_COLS - 1);
+        const r = Math.min(coords[1] + dr, TILEMAP_ROWS - 1);
+        row.push([c, r]);
+      }
+      block.push(row);
+    }
+    selectedBlock = block;
+    selectedTile = coords;
+  }
+  renderPalette();
+  updatePreview();
+});
+
+// ── Selected tile preview ──
+const previewCanvas = document.getElementById('preview-canvas');
+const previewCtx = previewCanvas.getContext('2d');
+previewCtx.imageSmoothingEnabled = false;
+const selectedLabel = document.getElementById('selected-label');
+
+function updatePreview() {
+  if (!tilemapImg) return;
+  const size = getBrushSize();
+  const pxSize = size * 32;
+  previewCanvas.width = pxSize;
+  previewCanvas.height = pxSize;
+  previewCtx.imageSmoothingEnabled = false;
+  previewCtx.clearRect(0, 0, pxSize, pxSize);
+
+  if (size === 1 || !selectedBlock) {
+    const sx = selectedTile[0] * TILE_STEP;
+    const sy = selectedTile[1] * TILE_STEP;
+    previewCtx.drawImage(tilemapImg, sx, sy, TILE_SIZE, TILE_SIZE, 0, 0, 32, 32);
+    selectedLabel.textContent = `Selected: [${selectedTile[0]}, ${selectedTile[1]}] (${size}×${size})`;
+  } else {
+    for (let dr = 0; dr < size; dr++) {
+      for (let dc = 0; dc < size; dc++) {
+        const t = selectedBlock[dr][dc];
+        const sx = t[0] * TILE_STEP;
+        const sy = t[1] * TILE_STEP;
+        previewCtx.drawImage(tilemapImg, sx, sy, TILE_SIZE, TILE_SIZE, dc * 32, dr * 32, 32, 32);
+      }
+    }
+    selectedLabel.textContent = `Block ${size}×${size} from [${selectedTile[0]}, ${selectedTile[1]}]`;
+  }
+}
+
+// ── Map Canvas ──
+const mapCanvas = document.getElementById('map-canvas');
+const mapCtx = mapCanvas.getContext('2d');
+const mapScroll = document.getElementById('map-scroll');
+const mapInfo = document.getElementById('map-info');
+const showGridCheckbox = document.getElementById('show-grid');
+
+function resizeMapCanvas() {
+  mapCanvas.width = MAP_COLS * TILE_SIZE * MAP_SCALE;
+  mapCanvas.height = mapRows * TILE_SIZE * MAP_SCALE;
+  mapCtx.imageSmoothingEnabled = false;
+}
+
+function renderMap() {
+  if (!tilemapImg) return;
+  mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+  const tileDrawSize = TILE_SIZE * MAP_SCALE;
+
+  for (let r = 0; r < mapRows; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      const tile = mapData[r][c];
+      const sx = tile[0] * TILE_STEP;
+      const sy = tile[1] * TILE_STEP;
+      const dx = c * tileDrawSize;
+      const dy = r * tileDrawSize;
+
+      mapCtx.drawImage(
+        tilemapImg,
+        sx, sy, TILE_SIZE, TILE_SIZE,
+        dx, dy, tileDrawSize, tileDrawSize
+      );
+    }
+  }
+
+  // Grid overlay
+  if (showGridCheckbox.checked) {
+    mapCtx.strokeStyle = GRID_COLOR;
+    mapCtx.lineWidth = 1;
+    for (let r = 0; r <= mapRows; r++) {
+      const y = r * tileDrawSize + 0.5;
+      mapCtx.beginPath();
+      mapCtx.moveTo(0, y);
+      mapCtx.lineTo(mapCanvas.width, y);
+      mapCtx.stroke();
+    }
+    for (let c = 0; c <= MAP_COLS; c++) {
+      const x = c * tileDrawSize + 0.5;
+      mapCtx.beginPath();
+      mapCtx.moveTo(x, 0);
+      mapCtx.lineTo(x, mapCanvas.height);
+      mapCtx.stroke();
+    }
+  }
+
+  updateMapInfo();
+}
+
+function updateMapInfo(tileCol, tileRow) {
+  let text = `Map: ${MAP_COLS} x ${mapRows}`;
+  if (tileCol !== undefined && tileRow !== undefined) {
+    const tile = mapData[tileRow]?.[tileCol];
+    if (tile) {
+      text += ` | Cursor: (${tileCol}, ${tileRow}) = [${tile[0]}, ${tile[1]}]`;
+    }
+  }
+  mapInfo.textContent = text;
+}
+
+showGridCheckbox.addEventListener('change', renderMap);
+
+// ── Map interaction ──
+function mapCoordsFromEvent(e) {
+  const rect = mapCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const tileDrawSize = TILE_SIZE * MAP_SCALE;
+  const col = Math.floor(x / tileDrawSize);
+  const row = Math.floor(y / tileDrawSize);
+  if (col < 0 || col >= MAP_COLS || row < 0 || row >= mapRows) return null;
+  return [col, row];
+}
+
+function paintAt(col, row) {
+  const size = getBrushSize();
+
+  if (size === 1) {
+    // 1x1: paint single tile
+    if (row >= 0 && row < mapRows && col >= 0 && col < MAP_COLS) {
+      mapData[row][col] = [selectedTile[0], selectedTile[1]];
+    }
+  } else if (selectedBlock && selectedBlock.length === size) {
+    // NxN: paint the picked block
+    for (let dr = 0; dr < size; dr++) {
+      for (let dc = 0; dc < size; dc++) {
+        const mr = row + dr;
+        const mc = col + dc;
+        if (mr >= 0 && mr < mapRows && mc >= 0 && mc < MAP_COLS) {
+          const tile = selectedBlock[dr][dc];
+          mapData[mr][mc] = [tile[0], tile[1]];
+        }
+      }
+    }
+  } else {
+    // NxN but no block picked yet — fill with selected single tile
+    for (let dr = 0; dr < size; dr++) {
+      for (let dc = 0; dc < size; dc++) {
+        const mr = row + dr;
+        const mc = col + dc;
+        if (mr >= 0 && mr < mapRows && mc >= 0 && mc < MAP_COLS) {
+          mapData[mr][mc] = [selectedTile[0], selectedTile[1]];
+        }
+      }
+    }
+  }
+  renderMap();
+}
+
+function eyedropAt(col, row) {
+  const size = getBrushSize();
+
+  if (size === 1) {
+    const tile = mapData[row]?.[col];
+    if (tile) {
+      selectedTile = [tile[0], tile[1]];
+      selectedBlock = null;
+    }
+  } else {
+    // Pick a NxN block from the map
+    const block = [];
+    for (let dr = 0; dr < size; dr++) {
+      const blockRow = [];
+      for (let dc = 0; dc < size; dc++) {
+        const mr = row + dr;
+        const mc = col + dc;
+        if (mr >= 0 && mr < mapRows && mc >= 0 && mc < MAP_COLS) {
+          const t = mapData[mr][mc];
+          blockRow.push([t[0], t[1]]);
+        } else {
+          blockRow.push([1, 3]);
+        }
+      }
+      block.push(blockRow);
+    }
+    selectedBlock = block;
+    selectedTile = block[0][0]; // top-left for preview
+  }
+  renderPalette();
+  updatePreview();
+}
+
+mapCanvas.addEventListener('mousedown', (e) => {
+  if (e.button === 0) {
+    painting = true;
+    const coords = mapCoordsFromEvent(e);
+    if (coords) {
+      paintAt(coords[0], coords[1]);
+    }
+  } else if (e.button === 2) {
+    const coords = mapCoordsFromEvent(e);
+    if (coords) {
+      eyedropAt(coords[0], coords[1]);
+    }
+  }
+});
+
+mapCanvas.addEventListener('mousemove', (e) => {
+  const coords = mapCoordsFromEvent(e);
+  if (coords) {
+    updateMapInfo(coords[0], coords[1]);
+    if (painting) {
+      paintAt(coords[0], coords[1]);
+    }
+  }
+});
+
+mapCanvas.addEventListener('mouseup', () => {
+  painting = false;
+});
+
+mapCanvas.addEventListener('mouseleave', () => {
+  painting = false;
+  updateMapInfo();
+});
+
+mapCanvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+});
+
+// ── Row management ──
+function addRow() {
+  const row = [];
+  for (let c = 0; c < MAP_COLS; c++) {
+    row.push([1, 3]); // default sand
+  }
+  mapData.push(row);
+  mapRows++;
+  resizeMapCanvas();
+  renderMap();
+}
+
+function removeRow() {
+  if (mapRows <= 1) return;
+  mapData.pop();
+  mapRows--;
+  resizeMapCanvas();
+  renderMap();
+}
+
+function clearMap() {
+  if (!confirm('Clear entire map? This cannot be undone.')) return;
+  for (let r = 0; r < mapRows; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      mapData[r][c] = [1, 3];
+    }
+  }
+  renderMap();
+}
+
+function fillSelection() {
+  if (!confirm(`Fill entire map with [${selectedTile[0]}, ${selectedTile[1]}]?`)) return;
+  for (let r = 0; r < mapRows; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      mapData[r][c] = [selectedTile[0], selectedTile[1]];
+    }
+  }
+  renderMap();
+}
+
+// ── Export ──
+function exportMap() {
+  // Find max width of each column's string representation for alignment
+  let lines = [];
+  for (let r = 0; r < mapRows; r++) {
+    const tiles = mapData[r].map(t => `[${t[0]},${t[1]}]`);
+    lines.push('  [' + tiles.join(', ') + '],');
+  }
+
+  const output = `const WORLD_PATTERN: Tile[][] = [\n${lines.join('\n')}\n];`;
+
+  document.getElementById('modal-title').textContent = 'Export — World Pattern';
+  document.getElementById('modal-textarea').value = output;
+  document.getElementById('modal-action-btn').textContent = 'Copy to Clipboard';
+  document.getElementById('modal-action-btn').onclick = () => {
+    navigator.clipboard.writeText(output).then(() => {
+      document.getElementById('modal-action-btn').textContent = 'Copied!';
+      setTimeout(() => {
+        document.getElementById('modal-action-btn').textContent = 'Copy to Clipboard';
+      }, 1500);
+    });
+  };
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+// ── Import ──
+function openImport() {
+  document.getElementById('modal-title').textContent = 'Import — Paste World Pattern';
+  document.getElementById('modal-textarea').value = '';
+  document.getElementById('modal-textarea').placeholder =
+    'Paste a WORLD_PATTERN array here...\ne.g.:\nconst WORLD_PATTERN: Tile[][] = [\n  [[0,0], [1,0], ...],\n  ...\n];';
+  document.getElementById('modal-action-btn').textContent = 'Import';
+  document.getElementById('modal-action-btn').onclick = doImport;
+  document.getElementById('modal-overlay').classList.add('active');
+}
+
+function doImport() {
+  const text = document.getElementById('modal-textarea').value;
+
+  // Parse: find all rows of [col,row] tuples
+  // Strategy: extract each line that looks like a row of tuples
+  const parsed = [];
+
+  // Match arrays of [n,n] per line
+  // Find the outer array content
+  const arrayMatch = text.match(/\[[\s\S]*\]/);
+  if (!arrayMatch) {
+    alert('Could not find an array in the input.');
+    return;
+  }
+
+  // Split by lines and find rows
+  const lines = text.split('\n');
+  for (const line of lines) {
+    // Find all [number, number] pairs in this line
+    const pairs = [];
+    const regex = /\[(\d+)\s*,\s*(\d+)\]/g;
+    let m;
+    while ((m = regex.exec(line)) !== null) {
+      pairs.push([parseInt(m[1]), parseInt(m[2])]);
+    }
+    if (pairs.length >= 2) { // at least 2 tiles = likely a row
+      parsed.push(pairs);
+    }
+  }
+
+  if (parsed.length === 0) {
+    alert('Could not parse any tile rows from the input.');
+    return;
+  }
+
+  // Normalize: ensure each row is exactly MAP_COLS wide
+  const normalizedRows = parsed.map(row => {
+    const newRow = [];
+    for (let c = 0; c < MAP_COLS; c++) {
+      if (c < row.length) {
+        newRow.push(row[c]);
+      } else {
+        newRow.push([1, 3]); // pad with sand
+      }
+    }
+    return newRow;
+  });
+
+  mapData = normalizedRows;
+  mapRows = mapData.length;
+  resizeMapCanvas();
+  renderMap();
+  closeModalForce();
+}
+
+// ── Modal ──
+function closeModal(e) {
+  if (e.target === document.getElementById('modal-overlay')) {
+    closeModalForce();
+  }
+}
+
+function closeModalForce() {
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+// Close modal on Escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModalForce();
+});
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', (e) => {
+  // Don't handle shortcuts when modal textarea is focused
+  if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return;
+
+  if (e.key === 'g') {
+    showGridCheckbox.checked = !showGridCheckbox.checked;
+    renderMap();
+  }
+  if (e.key === '1' || e.key === '2' || e.key === '3') {
+    document.getElementById('brush-size').value = e.key;
+    selectedBlock = null; // reset block on size change
+    renderPalette();
+    updatePreview();
+  }
+});
+
+// Update preview when brush size changes via dropdown
+document.getElementById('brush-size').addEventListener('change', () => {
+  selectedBlock = null;
+  renderPalette();
+  updatePreview();
+});
+</script>
+
+</body>
+</html>

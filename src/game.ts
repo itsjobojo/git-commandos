@@ -1,0 +1,924 @@
+import { Input } from './core/input';
+import { Renderer } from './core/renderer';
+import { Camera } from './core/camera';
+import { Player } from './entities/player';
+import { Projectile } from './entities/projectile';
+import { Enemy } from './entities/enemies/enemy';
+import { Recruiter } from './entities/enemies/recruiter';
+import { Intern } from './entities/enemies/intern';
+
+import { OutlookSwarm } from './entities/enemies/outlook-swarm';
+import { OutlookInvite } from './entities/outlook-invite';
+import { Pickup } from './entities/pickup';
+import { Particle } from './entities/particle';
+import { aabb } from './core/collision';
+import { renderHud } from './systems/hud';
+import { playSound } from './core/sound';
+import { drawChar, playersTilemap } from './core/assets';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
+import { GameState } from './types';
+import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt } from './world';
+import { AnnouncementSystem } from './systems/announcements';
+import { WeaponType, WEAPONS } from './weapons';
+
+export class Game {
+  private renderer: Renderer;
+  private input: Input;
+  private camera: Camera;
+  private player: Player;
+  private playerBullets: Projectile[] = [];
+  private enemyBullets: Projectile[] = [];
+  private enemies: Enemy[] = [];
+  private pickups: Pickup[] = [];
+  private particles: Particle[] = [];
+  private state: GameState = 'title';
+  private spawnTimer = 0;
+  private outlookBossActive = false;
+
+  private shakeTimer = 0;
+  private shakeIntensity = 0;
+  private popups: { text: string; x: number; y: number; timer: number }[] = [];
+  private outlookInvites: OutlookInvite[] = [];
+  private meetingModal: { name: string; age: number; acceptKey: string; declineKey: string } | null = null;
+  private bossTitle = 0; // timer for boss title banner
+  private deathTimer = 0;
+  private deathX = 0;
+  private deathY = 0;
+
+  private gameTime = 0;
+  private rushHealTimer = 0;
+  private announcements = new AnnouncementSystem();
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.renderer = new Renderer(canvas);
+    this.input = new Input();
+    this.camera = new Camera();
+    this.player = new Player();
+  }
+
+  update(dt: number): void {
+    if (this.state === 'title') {
+      if (this.input.fire || this.input.justPressed('Enter')) {
+        this.state = 'playing';
+        this.reset();
+        playSound('select');
+      }
+      // Scroll bg on title screen for effect
+      this.camera.update(dt);
+      this.input.endFrame();
+      return;
+    }
+
+    if (this.state === 'game-over' || this.state === 'win') {
+      if (this.input.justPressed('Enter') || this.input.fire) {
+        this.state = 'title';
+        playSound('select');
+      }
+      this.input.endFrame();
+      return;
+    }
+
+    if (this.state === 'dying') {
+      this.deathTimer -= dt;
+      if (this.deathTimer <= 0) {
+        this.state = 'game-over';
+      }
+      this.input.endFrame();
+      return;
+    }
+
+    // Meeting modal — game keeps running, but player must accept/decline
+    if (this.meetingModal) {
+      this.meetingModal.age += dt;
+      if (this.meetingModal.age > 0.4) {
+        const aKey = this.meetingModal.acceptKey;
+        const dKey = this.meetingModal.declineKey;
+        if (this.input.justPressed(aKey) || this.input.isDown(aKey)) {
+          this.meetingModal = null;
+          playSound('select');
+        } else if (this.input.justPressed(dKey) || this.input.isDown(dKey)) {
+          this.meetingModal = null;
+          this.player.score += 50;
+          this.addPopup('+50 DECLINED', this.player.x + this.player.width / 2, this.player.y);
+          playSound('coin', 0.3);
+        }
+      }
+    }
+
+    this.gameTime += dt;
+    if (this.bossTitle > 0) this.bossTitle -= dt;
+
+    // Update meeting zones
+    this.announcements.update(dt, this.gameTime, this.camera.y);
+
+    // Announcement shake
+    const annShake = this.announcements.getIntroShake();
+    if (annShake > 0) this.shake(0.15, annShake);
+
+    this.player.handleInput(this.input);
+
+    // Check if player is in an avoid zone — super slow
+    if (this.announcements.isPlayerSlowed(this.player.x, this.player.y, this.player.width, this.player.height)) {
+      this.player.vx *= 0.2;
+      this.player.vy *= 0.2;
+    }
+
+    // Check if player reached a rush zone — bonus!
+    const claimed = this.announcements.checkRushClaim(this.player.x, this.player.y, this.player.width, this.player.height);
+    if (claimed) {
+      this.player.score += 500;
+      this.player.ammo = Math.min(99, this.player.ammo + 5);
+      this.addPopup('+500 ESCAPED!', this.player.x + this.player.width / 2, this.player.y);
+      playSound('coin', 0.3);
+    }
+
+    // Slowly heal while standing in a green (rush) zone
+    if (this.announcements.isPlayerInRush(this.player.x, this.player.y, this.player.width, this.player.height)) {
+      this.rushHealTimer += dt;
+      if (this.rushHealTimer >= 1.5 && this.player.hp < this.player.maxHp) {
+        this.rushHealTimer = 0;
+        this.player.hp++;
+        this.addPopup('HP+1', this.player.x + this.player.width / 2, this.player.y);
+        playSound('coin', 0.2);
+      }
+    } else {
+      this.rushHealTimer = 0;
+    }
+
+    // Shooting
+    if (this.input.fire && this.player.canFire()) {
+      if (this.player.hasAmmo()) {
+        this.playerBullets.push(...this.player.fire());
+        playSound('shoot', 0.15);
+      } else if (this.player.canMelee()) {
+        this.player.melee();
+        playSound('shoot', 0.1);
+      }
+    }
+
+    // Check melee hits
+    if (this.player.meleeTimer > 0) {
+      const meleeBox = this.player.getMeleeBox();
+      if (meleeBox) {
+        for (const enemy of this.enemies) {
+          if (!enemy.active) continue;
+          if (aabb(meleeBox, enemy.getBounds())) {
+            enemy.takeDamage(2);
+            if (!enemy.active) {
+              const pts = enemy.scoreValue * Math.max(1, this.player.streak);
+              this.player.score += pts;
+              this.player.streak++;
+              this.addPopup(String(pts), enemy.x + enemy.width / 2, enemy.y);
+              this.spawnExplosion(enemy.x, enemy.y);
+              playSound('explosion', 0.25);
+              this.maybeDropPickup(enemy.x, enemy.y);
+            }
+          }
+        }
+      }
+    }
+
+    if (this.input.revert && this.player.gitRevertCharges > 0) {
+      this.fireGitRevert();
+    }
+
+    // Slow scroll if player is near the bottom of the screen
+    const p = this.player;
+    const bottomMargin = CANVAS_HEIGHT - (p.y + p.height);
+    if (bottomMargin < 40) {
+      // Slow down camera when player is near bottom edge
+      this.camera.speed = Math.max(8, 18 * (bottomMargin / 40));
+    } else {
+      this.camera.speed = 18;
+    }
+
+    // Save position, update, then check world collision
+    const prevX = p.x;
+    const prevY = p.y;
+    p.update(dt);
+
+    // Resolve player collision with world — try X and Y separately
+    if (collidesWithWorld(p.x, prevY, p.width, p.height, this.camera.y)) {
+      p.x = prevX;
+    }
+    if (collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
+      p.y = prevY;
+    }
+
+    // Camera scrolls
+    this.camera.update(dt);
+
+    // After scroll: check if player is now inside a solid tile (building came from above)
+    if (collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
+      // Push player down to stay ahead of the building
+      for (let nudge = 1; nudge <= 16; nudge++) {
+        p.y += 1;
+        if (!collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
+          break;
+        }
+      }
+    }
+
+    // Check if player reached the end area — win!
+    const endScreenY = worldRowToScreenY(END_AREA.row, this.camera.y);
+    const endPxX = END_AREA.col * 16;
+    const endPxW = END_AREA.w * 16;
+    const endPxH = END_AREA.h * 16;
+    if (
+      endScreenY > -endPxH && endScreenY < CANVAS_HEIGHT &&
+      p.x + p.width > endPxX && p.x < endPxX + endPxW &&
+      p.y + p.height > endScreenY && p.y < endScreenY + endPxH
+    ) {
+      this.state = 'win';
+      playSound('coin', 0.4);
+    }
+
+    // If player is pushed off the bottom of the screen — death
+    if (p.y + p.height > CANVAS_HEIGHT) {
+      p.hp = 0;
+      p.active = false;
+    }
+
+    this.spawnTimer -= dt;
+    if (this.spawnTimer <= 0) {
+      this.spawnWave();
+      const baseInterval = Math.max(1.5, 3.5 - this.gameTime * 0.015);
+      this.spawnTimer = baseInterval + Math.random() * 2;
+    }
+
+    for (const enemy of this.enemies) {
+      const ex = enemy.x;
+      const ey = enemy.y;
+      enemy.ai(dt, this.player.x + this.player.width / 2, this.player.y + this.player.height / 2);
+      enemy.updateFlash(dt);
+
+      if ((enemy as any)._sideSpawn) {
+        // Side-spawned enemies must stay on building body tiles (purple/green fill)
+        const cx = enemy.x + enemy.width / 2;
+        const cy = enemy.y + enemy.height / 2;
+        if (!isBuildingBodyAt(cx, cy, this.camera.y)) {
+          enemy.active = false;
+        }
+      } else {
+        // Top-spawned enemies bounce off solid tiles
+        if (collidesWithWorld(enemy.x, enemy.y, enemy.width, enemy.height, this.camera.y)) {
+          enemy.x = ex;
+          enemy.y = ey;
+          enemy.vx = -enemy.vx;
+        }
+      }
+
+      if (enemy instanceof Recruiter && enemy.canFire()) {
+        this.enemyBullets.push(
+          enemy.fire(
+            this.player.x + this.player.width / 2,
+            this.player.y + this.player.height / 2
+          )
+        );
+      }
+
+      // Drain outlook invites from organizers
+      if (enemy instanceof OutlookSwarm) {
+        for (const invite of enemy.pendingInvites) {
+          this.outlookInvites.push(invite);
+        }
+        enemy.pendingInvites = [];
+      }
+    }
+
+    for (const inv of this.outlookInvites) inv.update(dt);
+    for (const b of this.playerBullets) b.update(dt);
+    for (const b of this.enemyBullets) b.update(dt);
+    for (const p of this.pickups) p.update(dt);
+    for (const p of this.particles) p.update(dt);
+
+    // Collision: player bullets vs enemies
+    for (const bullet of this.playerBullets) {
+      if (!bullet.active) continue;
+      for (const enemy of this.enemies) {
+        if (!enemy.active) continue;
+        if (aabb(bullet.getBounds(), enemy.getBounds())) {
+          bullet.active = false;
+          enemy.takeDamage(bullet.damage);
+          playSound('hit', 0.2);
+          if (!enemy.active) {
+            const points = enemy.scoreValue * Math.max(1, this.player.streak);
+            this.player.score += points;
+            this.player.streak++;
+            this.addPopup(String(points), enemy.x + enemy.width / 2, enemy.y);
+            this.spawnExplosion(enemy.x, enemy.y);
+            playSound('explosion', 0.25);
+            this.maybeDropPickup(enemy.x, enemy.y);
+          }
+          break;
+        }
+      }
+    }
+
+    // Collision: player bullets vs outlook invites — shoot them down
+    for (const bullet of this.playerBullets) {
+      if (!bullet.active) continue;
+      for (const invite of this.outlookInvites) {
+        if (!invite.active) continue;
+        if (aabb(bullet.getBounds(), invite.getBounds())) {
+          bullet.active = false;
+          invite.active = false;
+          this.player.score += 25;
+          this.addPopup('25', invite.x + invite.width / 2, invite.y);
+          playSound('hit', 0.2);
+          break;
+        }
+      }
+    }
+
+    for (const bullet of this.enemyBullets) {
+      if (!bullet.active) continue;
+      if (aabb(bullet.getBounds(), this.player.getBounds())) {
+        bullet.active = false;
+        this.player.takeDamage(1);
+        this.shake(0.2, 3);
+        playSound('hurt', 0.3);
+      }
+    }
+
+    for (const enemy of this.enemies) {
+      if (!enemy.active) continue;
+      if (aabb(enemy.getBounds(), this.player.getBounds())) {
+        this.player.takeDamage(1);
+        this.shake(0.3, 4);
+        playSound('hurt', 0.3);
+      }
+    }
+
+    for (const pickup of this.pickups) {
+      if (!pickup.active) continue;
+      if (aabb(pickup.getBounds(), this.player.getBounds())) {
+        pickup.active = false;
+        this.applyPickup(pickup);
+        playSound('coin', 0.3);
+      }
+    }
+
+    // Collision: player vs outlook invites — triggers meeting modal
+    for (const invite of this.outlookInvites) {
+      if (!invite.active) continue;
+      if (aabb(invite.getBounds(), this.player.getBounds())) {
+        invite.active = false;
+        const [acceptKey, declineKey] = this.pickModalKeys();
+        this.meetingModal = { name: invite.meetingName, age: 0, acceptKey, declineKey };
+        this.shake(0.2, 6);
+        playSound('hurt', 0.3);
+        break;
+      }
+    }
+
+    for (const p of this.popups) {
+      p.timer -= dt;
+      p.y -= 20 * dt;
+    }
+    this.popups = this.popups.filter((p) => p.timer > 0);
+
+    if (this.shakeTimer > 0) this.shakeTimer -= dt;
+
+    this.playerBullets = this.playerBullets.filter((b) => b.active);
+    this.enemyBullets = this.enemyBullets.filter((b) => b.active);
+    this.enemies = this.enemies.filter((e) => e.active);
+    this.pickups = this.pickups.filter((p) => p.active);
+    this.particles = this.particles.filter((p) => p.active);
+    this.outlookInvites = this.outlookInvites.filter((i) => i.active);
+
+    if (!this.player.active && this.state === 'playing') {
+      this.state = 'dying';
+      this.deathTimer = 2.0;
+      this.deathX = this.player.x;
+      this.deathY = this.player.y;
+      playSound('lose', 0.4);
+    }
+
+    this.input.endFrame();
+  }
+
+  render(_alpha: number): void {
+    const ctx = this.renderer.ctx;
+    this.renderer.clear();
+
+    if (this.state === 'title') {
+      this.renderTitle(ctx);
+      return;
+    }
+
+    if (this.state === 'game-over') {
+      this.renderGameOver(ctx);
+      return;
+    }
+
+    if (this.state === 'win') {
+      this.renderWin(ctx);
+      return;
+    }
+
+    if (this.state === 'dying') {
+      this.renderDying(ctx);
+      return;
+    }
+
+    ctx.save();
+    if (this.shakeTimer > 0) {
+      const intensity = this.shakeIntensity;
+      const sx = (Math.random() - 0.5) * intensity * 2;
+      const sy = (Math.random() - 0.5) * intensity * 2;
+      ctx.translate(sx, sy);
+    }
+
+    // World background
+    renderWorld(ctx, this.camera.y);
+
+    for (const p of this.pickups) p.render(ctx);
+    for (const enemy of this.enemies) enemy.render(ctx);
+    for (const b of this.enemyBullets) b.render(ctx);
+    for (const inv of this.outlookInvites) inv.render(ctx);
+    this.player.render(ctx);
+    for (const b of this.playerBullets) b.render(ctx);
+    for (const p of this.particles) p.render(ctx);
+
+    for (const p of this.popups) {
+      ctx.fillStyle = '#f7dc6f';
+      ctx.font = '7px monospace';
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = Math.min(1, p.timer * 2);
+      ctx.fillText(`+${p.text}`, Math.round(p.x), Math.round(p.y));
+      ctx.globalAlpha = 1;
+    }
+
+
+    ctx.restore();
+
+    // Announcement overlay (rendered on top of game, under HUD)
+    this.announcements.render(ctx);
+
+    renderHud(ctx, this.player);
+
+    if (this.bossTitle > 0) {
+      this.renderBossTitle(ctx);
+    }
+
+    if (this.meetingModal) {
+      this.renderMeetingModal(ctx);
+    }
+  }
+
+  private renderTitle(ctx: CanvasRenderingContext2D): void {
+    renderWorld(ctx, this.camera.y);
+
+    ctx.fillStyle = 'rgba(15, 15, 35, 0.8)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.fillStyle = '#2ecc71';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('GIT COMMANDOS', CANVAS_WIDTH / 2, 80);
+
+    ctx.fillStyle = '#ecf0f1';
+    ctx.font = '7px monospace';
+    ctx.fillText('Ship your deliverable', CANVAS_WIDTH / 2, 105);
+    ctx.fillText('Survive the tech industry', CANVAS_WIDTH / 2, 118);
+
+    // Alternate left/right to simulate walking
+    const walkCol = Math.floor(Date.now() / 400) % 2 === 0 ? 1 : 2;
+    drawChar(ctx, playersTilemap, walkCol, 0, CANVAS_WIDTH / 2 - 12, 140);
+
+    ctx.fillStyle = '#bdc3c7';
+    ctx.font = '6px monospace';
+    ctx.fillText('Arrow keys / WASD - Move', CANVAS_WIDTH / 2, 195);
+    ctx.fillText('Z / Space - Shoot', CANVAS_WIDTH / 2, 208);
+    ctx.fillText('C - git revert (clear)', CANVAS_WIDTH / 2, 221);
+
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = '#f5a623';
+      ctx.font = '8px monospace';
+      ctx.fillText('Press Z or ENTER to start', CANVAS_WIDTH / 2, 300);
+    }
+
+    ctx.fillStyle = '#533483';
+    ctx.font = '6px monospace';
+    ctx.fillText('$ git push origin main --force', CANVAS_WIDTH / 2, 360);
+  }
+
+  private renderGameOver(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = 'rgba(15, 15, 35, 0.9)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.fillStyle = '#e94560';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, 120);
+
+    ctx.fillStyle = '#ecf0f1';
+    ctx.font = '7px monospace';
+    ctx.fillText('Deliverable not shipped', CANVAS_WIDTH / 2, 145);
+
+    // Dead character lying down
+    ctx.save();
+    ctx.translate(CANVAS_WIDTH / 2, 175);
+    ctx.rotate(Math.PI / 2);
+    drawChar(ctx, playersTilemap, 0, 0, -12, -12);
+    ctx.restore();
+
+    ctx.fillStyle = '#f7dc6f';
+    ctx.font = '8px monospace';
+    ctx.fillText(`Score: ${this.player.score}`, CANVAS_WIDTH / 2, 210);
+
+    ctx.fillStyle = '#7f8c8d';
+    ctx.font = '6px monospace';
+    ctx.fillText('$ git reset --hard HEAD', CANVAS_WIDTH / 2, 240);
+
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = '#f5a623';
+      ctx.font = '8px monospace';
+      ctx.fillText('Press Z or ENTER to retry', CANVAS_WIDTH / 2, 310);
+    }
+  }
+
+  private renderDying(ctx: CanvasRenderingContext2D): void {
+    const progress = 1 - this.deathTimer / 2.0; // 0 → 1
+
+    // Render the world underneath
+    renderWorld(ctx, this.camera.y);
+    for (const p of this.pickups) p.render(ctx);
+    for (const enemy of this.enemies) enemy.render(ctx);
+
+    // Blink fast then hold still and fade
+    const fade = Math.max(0, 1 - progress * 1.2);
+    const blinkFast = progress < 0.4 && Math.floor(progress * 20) % 2 === 0;
+
+    if (!blinkFast) {
+      ctx.save();
+      ctx.globalAlpha = fade;
+      const rx = Math.round(this.deathX);
+      const ry = Math.round(this.deathY);
+
+      // Tint red
+      drawChar(ctx, playersTilemap, 0, 0, rx, ry);
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = `rgba(233, 69, 96, ${0.5 * fade})`;
+      ctx.fillRect(rx, ry, this.player.width, this.player.height);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+    }
+
+    // Fade to black
+    const blackFade = Math.min(1, progress * 1.0);
+    ctx.fillStyle = `rgba(15, 15, 35, ${blackFade})`;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }
+
+  private renderWin(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = 'rgba(5, 20, 10, 0.9)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.fillStyle = '#2ecc71';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DELIVERABLE SHIPPED', CANVAS_WIDTH / 2, 100);
+
+    ctx.fillStyle = '#ecf0f1';
+    ctx.font = '7px monospace';
+    ctx.fillText('You survived the tech industry', CANVAS_WIDTH / 2, 130);
+
+    drawChar(ctx, playersTilemap, 2, 1, CANVAS_WIDTH / 2 - 12, 155);
+
+    ctx.fillStyle = '#f7dc6f';
+    ctx.font = '10px monospace';
+    ctx.fillText(`Score: ${this.player.score}`, CANVAS_WIDTH / 2, 210);
+
+    ctx.fillStyle = '#2ecc71';
+    ctx.font = '6px monospace';
+    ctx.fillText('$ git push origin main', CANVAS_WIDTH / 2, 245);
+    ctx.fillText('Enumerating objects: done.', CANVAS_WIDTH / 2, 258);
+    ctx.fillText('Writing objects: 100%, done.', CANVAS_WIDTH / 2, 271);
+    ctx.fillText('remote: Deployed to production', CANVAS_WIDTH / 2, 284);
+
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = '#f5a623';
+      ctx.font = '8px monospace';
+      ctx.fillText('Press Z or ENTER', CANVAS_WIDTH / 2, 330);
+    }
+  }
+
+  private renderBossTitle(ctx: CanvasRenderingContext2D): void {
+    const fade = Math.min(1, this.bossTitle * 2);
+    const cx = CANVAS_WIDTH / 2;
+    const cy = CANVAS_HEIGHT / 3;
+
+    ctx.save();
+    ctx.globalAlpha = fade;
+
+    // Dark banner
+    ctx.fillStyle = `rgba(10, 5, 30, 0.9)`;
+    ctx.fillRect(0, cy - 28, CANVAS_WIDTH, 56);
+
+    // Red accent lines
+    ctx.fillStyle = '#e94560';
+    ctx.fillRect(0, cy - 28, CANVAS_WIDTH, 2);
+    ctx.fillRect(0, cy + 26, CANVAS_WIDTH, 2);
+
+    // Title
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 20px "Pixelify Sans", sans-serif';
+    ctx.fillStyle = '#e94560';
+    ctx.fillText('OUTLOOK INVITES', cx, cy - 4);
+
+    // Subtitle
+    ctx.font = 'bold 10px "Pixelify Sans", sans-serif';
+    ctx.fillStyle = '#ff8899';
+    ctx.fillText('Shoot them down!', cx, cy + 18);
+
+    ctx.restore();
+  }
+
+  private pickModalKeys(): [string, string] {
+    // Pick two random distinct letter keys, avoiding WASD/movement keys
+    const pool = 'BFGHIJKLMNOPQRTUVXY';
+    const i = Math.floor(Math.random() * pool.length);
+    let j = Math.floor(Math.random() * (pool.length - 1));
+    if (j >= i) j++;
+    return [`Key${pool[i]}`, `Key${pool[j]}`];
+  }
+
+  private renderMeetingModal(ctx: CanvasRenderingContext2D): void {
+    if (!this.meetingModal) return;
+    const cx = CANVAS_WIDTH / 2;
+    const cy = CANVAS_HEIGHT / 2;
+
+    // Dark overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Modal card
+    const cardW = 220;
+    const cardH = 160;
+    const cardX = cx - cardW / 2;
+    const cardY = cy - cardH / 2;
+
+    // Card shadow
+    ctx.fillStyle = 'rgba(0, 80, 180, 0.3)';
+    ctx.fillRect(cardX + 3, cardY + 3, cardW, cardH);
+
+    // Card background
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(cardX, cardY, cardW, cardH);
+
+    // Blue header bar
+    ctx.fillStyle = '#0078d4';
+    ctx.fillRect(cardX, cardY, cardW, 28);
+
+    // Header icon + text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 10px "Pixelify Sans", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Meeting Invite', cardX + 8, cardY + 14);
+
+    // Meeting name
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px "Pixelify Sans", sans-serif';
+    ctx.fillText(this.meetingModal.name, cx, cardY + 52);
+
+    // Subtitle
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '9px "Pixelify Sans", sans-serif';
+    ctx.fillText('starts NOW - you cannot decline', cx, cardY + 72);
+    ctx.fillText('Duration: 1 hour', cx, cardY + 86);
+
+    // Separator
+    ctx.strokeStyle = '#333355';
+    ctx.beginPath();
+    ctx.moveTo(cardX + 12, cardY + 98);
+    ctx.lineTo(cardX + cardW - 12, cardY + 98);
+    ctx.stroke();
+
+    // Buttons with random keys
+    const aLetter = this.meetingModal.acceptKey.replace('Key', '');
+    const dLetter = this.meetingModal.declineKey.replace('Key', '');
+    const btnW = 80;
+    const btnH = 22;
+    const btnY = cardY + 112;
+    const blink = Math.floor(Date.now() / 400) % 2 === 0;
+
+    // Accept button
+    const acceptX = cx - btnW - 8;
+    ctx.fillStyle = '#0078d4';
+    ctx.fillRect(acceptX, btnY, btnW, btnH);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 9px "Pixelify Sans", sans-serif';
+    ctx.fillText(`Accept [${aLetter}]`, acceptX + btnW / 2, btnY + btnH / 2);
+
+    // Decline button
+    const declineX = cx + 8;
+    ctx.fillStyle = '#e94560';
+    ctx.fillRect(declineX, btnY, btnW, btnH);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`Decline [${dLetter}]`, declineX + btnW / 2, btnY + btnH / 2);
+
+    // Blinking prompt
+    if (blink) {
+      ctx.fillStyle = '#667788';
+      ctx.font = '7px "Pixelify Sans", sans-serif';
+      ctx.fillText(`Press ${aLetter} to accept or ${dLetter} to decline`, cx, cardY + cardH - 10);
+    }
+  }
+
+  private spawnWave(): void {
+    // Track whether an outlook boss is alive
+    this.outlookBossActive = this.enemies.some(e => e instanceof OutlookSwarm);
+
+    // While outlook boss is active, reduce spawns significantly
+    if (this.outlookBossActive && Math.random() < 0.7) return;
+
+    const waveType = Math.random();
+    const difficultyScale = Math.min(2, 1 + this.gameTime * 0.01);
+
+    if (waveType < 0.25) {
+      // Recruiters from top
+      const count = Math.floor(1 + Math.random() * difficultyScale);
+      for (let i = 0; i < count; i++) {
+        const x = 20 + Math.random() * (CANVAS_WIDTH - 64);
+        this.enemies.push(new Recruiter(x, -30 - i * 35));
+      }
+    } else if (waveType < 0.45) {
+      // Interns from top
+      const count = Math.floor(1 + Math.random() * 2 * difficultyScale);
+      for (let i = 0; i < count; i++) {
+        const x = Math.random() * (CANVAS_WIDTH - 24);
+        this.enemies.push(new Intern(x, -30 - i * 25));
+      }
+    } else if (waveType < 0.7) {
+      // Side-entry enemies — spawn ON mountain textures
+      const fromLeft = Math.random() < 0.5;
+      const spans = findBuildingEdgeSpans(this.camera.y, fromLeft ? 'left' : 'right');
+      if (spans.length > 0) {
+        const span = spans[Math.floor(Math.random() * spans.length)];
+        if (span.h >= 32) { // need enough room
+          const count = 1 + Math.floor(Math.random() * 2 * difficultyScale);
+          for (let i = 0; i < count; i++) {
+            const x = fromLeft ? 8 : CANVAS_WIDTH - 24;
+            const y = span.y + 8 + Math.random() * (span.h - 32);
+            const enemy = new Intern(x, y);
+            enemy.vx = fromLeft ? (35 + Math.random() * 20) : -(35 + Math.random() * 20);
+            enemy.vy = 8 + Math.random() * 10;
+            (enemy as any)._sideSpawn = true; // mark for constraint
+            this.enemies.push(enemy);
+          }
+        }
+      }
+    } else if (!this.outlookBossActive && waveType > 0.92) {
+      // Outlook organizer mini-boss — rare, only one at a time
+      const x = 40 + Math.random() * (CANVAS_WIDTH - 80);
+      this.enemies.push(new OutlookSwarm(x, -20));
+      this.bossTitle = 2.5;
+      this.shake(0.3, 6);
+      playSound('explosion', 0.4);
+    } else {
+      // Recruiters from sides — on mountains
+      const fromLeft = Math.random() < 0.5;
+      const spans = findBuildingEdgeSpans(this.camera.y, fromLeft ? 'left' : 'right');
+      if (spans.length > 0) {
+        const span = spans[Math.floor(Math.random() * spans.length)];
+        if (span.h >= 32) {
+          const x = fromLeft ? 8 : CANVAS_WIDTH - 24;
+          const y = span.y + 8 + Math.random() * (span.h - 32);
+          const enemy = new Recruiter(x, y);
+          enemy.vx = fromLeft ? 30 : -30;
+          enemy.vy = 8;
+          (enemy as any)._sideSpawn = true;
+          this.enemies.push(enemy);
+        }
+      }
+    }
+  }
+
+  private fireGitRevert(): void {
+    this.player.gitRevertCharges--;
+    this.player.invincibleTimer = 1.0;
+    this.shake(0.3, 5);
+    playSound('revert', 0.4);
+
+    this.enemyBullets = [];
+
+    for (const enemy of this.enemies) {
+      enemy.takeDamage(2);
+      if (!enemy.active) {
+        this.player.score += enemy.scoreValue;
+        this.spawnExplosion(enemy.x, enemy.y);
+      }
+    }
+    this.enemies = this.enemies.filter((e) => e.active);
+    this.addPopup('REVERT!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+  }
+
+  private shake(duration: number, intensity: number): void {
+    this.shakeTimer = duration;
+    this.shakeIntensity = intensity;
+  }
+
+  private addPopup(text: string, x: number, y: number): void {
+    this.popups.push({ text, x, y, timer: 0.8 });
+  }
+
+  private spawnExplosion(x: number, y: number): void {
+    this.particles.push(new Particle(x, y));
+  }
+
+  private maybeDropPickup(x: number, y: number): void {
+    if (Math.random() < 0.4) {
+      const roll = Math.random();
+      if (roll < 0.3) {
+        // Weapon drop — weighted by game time
+        const weapons: WeaponType[] = this.gameTime < 30
+          ? ['smg']
+          : this.gameTime < 60
+            ? ['smg', 'machinegun']
+            : ['smg', 'machinegun', 'shotgun'];
+        const weapon = weapons[Math.floor(Math.random() * weapons.length)];
+        this.pickups.push(new Pickup(x, y, 'weapon', weapon));
+      } else if (roll < 0.55) {
+        // Ammo for current weapon
+        this.pickups.push(new Pickup(x, y, 'ammo'));
+      } else if (roll < 0.75) {
+        this.pickups.push(new Pickup(x, y, 'health'));
+      } else if (roll < 0.9) {
+        this.pickups.push(new Pickup(x, y, 'revert'));
+      } else {
+        this.pickups.push(new Pickup(x, y, 'stash'));
+      }
+    }
+  }
+
+  private applyPickup(pickup: Pickup): void {
+    const px = this.player.x + this.player.width / 2;
+    const py = this.player.y;
+    switch (pickup.type) {
+      case 'weapon': {
+        const wt = pickup.weaponType!;
+        const def = WEAPONS[wt];
+        this.player.weapon = wt;
+        this.player.ammo = def.ammoOnPickup;
+        this.addPopup(def.name, px, py);
+        break;
+      }
+      case 'health':
+        this.player.hp = Math.min(this.player.maxHp, this.player.hp + 1);
+        this.addPopup('HP+1', px, py);
+        break;
+      case 'revert':
+        this.player.gitRevertCharges = Math.min(5, this.player.gitRevertCharges + 1);
+        this.addPopup('REVERT+1', px, py);
+        break;
+      case 'stash':
+        this.player.invincibleTimer = 3;
+        this.addPopup('GIT STASH!', px, py);
+        break;
+      case 'ammo': {
+        const ammoDef = WEAPONS[this.player.weapon];
+        this.player.ammo = Math.min(ammoDef.ammoOnPickup * 2, this.player.ammo + Math.ceil(ammoDef.ammoOnPickup / 2));
+        this.addPopup(`AMMO+${Math.ceil(ammoDef.ammoOnPickup / 2)}`, px, py);
+        break;
+      }
+      case 'cherry-pick': {
+        let strongest: Enemy | null = null;
+        let maxHp = 0;
+        for (const e of this.enemies) {
+          if (e.hp > maxHp) { maxHp = e.hp; strongest = e; }
+        }
+        if (strongest) {
+          strongest.takeDamage(999);
+          this.spawnExplosion(strongest.x, strongest.y);
+          this.player.score += strongest.scoreValue * 2;
+        }
+        this.addPopup('CHERRY-PICK!', px, py);
+        break;
+      }
+    }
+  }
+
+  private reset(): void {
+    this.player = new Player();
+    this.playerBullets = [];
+    this.enemyBullets = [];
+    this.enemies = [];
+    this.pickups = [];
+    this.particles = [];
+    this.camera = new Camera();
+    this.spawnTimer = 1;
+    this.outlookBossActive = false;
+    this.popups = [];
+    this.outlookInvites = [];
+    this.meetingModal = null;
+    this.gameTime = 0;
+    this.rushHealTimer = 0;
+    this.announcements = new AnnouncementSystem();
+  }
+}
