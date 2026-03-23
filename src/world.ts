@@ -21,9 +21,22 @@ const GREEN_L: Tile[] = [[5, 0], [5, 1], [5, 2]];
 const GREEN_M: Tile[] = [[6, 0], [6, 1], [6, 2]];
 const GREEN_R: Tile[] = [[7, 0], [7, 1], [7, 2]];
 
-// Decorations
+// Bridge tiles (connect buildings across the road)
+const BRIDGE_PURPLE: Tile = [4, 2];
+const BRIDGE_GREEN:  Tile = [9, 2];
+
+// Door tile (placed at bottom of bridges)
+const DOOR_TILE: Tile = [5, 4]; // tile_0077
+
+// Decorations (opaque — replace sand tile)
 const DECOR_TILES: Tile[] = [
-  [4, 7], [9, 7], [5, 3], [6, 3], [5, 4], [14, 10],
+  [4, 7], [9, 7], [5, 3], [6, 3], [14, 10],
+];
+
+// Overlay decorations (transparent bg — drawn on top of sand)
+const OVERLAY_TILES: Tile[] = [
+  [4, 4], // tile_0076 — rocks
+  [9, 4], // tile_0081 — plant/cactus
 ];
 
 // Area pad 9-patch tiles (walkable)
@@ -67,9 +80,19 @@ function mulberry32(seed: number) {
   };
 }
 
-function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; solid: boolean[][] } {
+/** Door portal: door at building bottom, two holes on building body, outside exit on road */
+export interface DoorPortal {
+  doorRow: number; doorCol: number;
+  hole1Row: number; hole1Col: number;   // entry hole — bottom of building body
+  hole2Row: number; hole2Col: number;   // exit hole — top of building body (or prev building)
+  outsideRow: number; outsideCol: number; // road position where player exits
+}
+
+function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay: (Tile | null)[][]; solid: boolean[][]; doorPortals: DoorPortal[] } {
   const rand = mulberry32(seed);
   const grid: Tile[][] = [];
+  const overlay: (Tile | null)[][] = [];
+  const doorPortals: DoorPortal[] = [];
 
   // Fill with sand
   for (let r = 0; r < totalRows; r++) {
@@ -78,15 +101,27 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; solid: b
       row.push(rand() < 0.15 ? [...SAND2] : [...SAND]);
     }
     grid.push(row);
+    overlay.push(new Array(COLS).fill(null));
   }
 
   // Place buildings with occasional wide-open desert stretches
+  // Track previous building's last body row and width for vertical bridges
+  let prevLeftBodyEnd = -1; // row AFTER the last body row
+  let prevLeftWidth = 0;
+  let prevLeftType: 'purple' | 'green' = 'purple';
+  let prevRightBodyEnd = -1;
+  let prevRightStart = 0;
+  let prevRightType: 'purple' | 'green' = 'purple';
+
   let y = 0;
   while (y < totalRows - 10) {
     // ~10% chance of a wide open desert section
     if (rand() < 0.10) {
-      const desertRows = 8 + Math.floor(rand() * 10); // 8-18 rows of open sand
+      const desertRows = 8 + Math.floor(rand() * 10);
       y += desertRows;
+      // Reset bridge tracking on desert gaps
+      prevLeftBodyEnd = -1;
+      prevRightBodyEnd = -1;
       continue;
     }
 
@@ -100,15 +135,117 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; solid: b
     const rightType: 'purple' | 'green' = rand() < 0.65 ? 'purple' : 'green';
     const rightStart = COLS - rightWidth;
 
-    const extraBody = Math.floor(rand() * 6) + 1; // 1-6 extra body rows = longer buildings
+    const extraBody = Math.floor(rand() * 8) + 2; // 2-9 extra body rows
 
     if (y + 8 + extraBody >= totalRows) break;
 
     if (hasLeft && leftWidth >= 3) {
+      // Vertical bridge from prev body end to this building's first body row
+      const nextLeftBodyStart = y + 1;
+      const leftBridgeCol = Math.min(prevLeftWidth, leftWidth) - 1;
+      const leftHasBridge = prevLeftBodyEnd >= 0 && nextLeftBodyStart > prevLeftBodyEnd
+          && leftBridgeCol >= 0 && leftBridgeCol < leftWidth && leftBridgeCol < prevLeftWidth
+          && rand() < 0.8;
+      if (leftHasBridge) {
+        const bridgeTile = prevLeftType === 'purple' ? BRIDGE_PURPLE : BRIDGE_GREEN;
+        for (let r = prevLeftBodyEnd; r < nextLeftBodyStart; r++) {
+          if (r >= 0 && r < totalRows) {
+            grid[r][leftBridgeCol] = [...bridgeTile];
+          }
+        }
+      }
       placeBuilding(grid, y, 0, leftWidth, extraBody, leftType);
+      // Door at bottom — press up to enter building, traverse body, exit at hole2
+      if (leftHasBridge && rand() < 0.5) {
+        const leftChunkH = leftType === 'purple' ? 5 : 3;
+        const doorRow = y + leftChunkH + extraBody - 1; // last row of building
+        const doorCol = Math.floor(leftWidth / 2); // centered
+        // Hole 1: entry, near bottom of building body
+        const hole1Row = leftType === 'purple' ? (y + 2 + extraBody) : (y + 1 + extraBody);
+        const hole1Col = doorCol;
+        // Hole 2: on previous building near its bottom body row
+        const hole2Row = prevLeftBodyEnd - 1;
+        const hole2Col = doorCol;
+        // Outside exit: on road next to hole2's row
+        const outsideRow = hole2Row;
+        const outsideCol = leftWidth + 1;
+        if (doorRow >= 0 && doorRow < totalRows && doorCol < COLS
+            && hole1Row < totalRows && hole2Row >= 0 && hole2Row < totalRows
+            && outsideCol < COLS) {
+          grid[doorRow][doorCol] = [...DOOR_TILE];
+          if (doorRow + 1 < totalRows) grid[doorRow + 1][doorCol] = [...SAND];
+          doorPortals.push({ doorRow, doorCol, hole1Row, hole1Col, hole2Row, hole2Col, outsideRow, outsideCol });
+        }
+      }
+      // 2nd tier: smaller building stacked on top (~40% chance, needs width >= 5)
+      if (leftWidth >= 5 && extraBody >= 2 && rand() < 0.4) {
+        const tier2Width = leftWidth - 2;
+        const tier2Extra = Math.max(0, extraBody - 2);
+        const tier2Type = leftType;
+        const tier2Row = y + 1; // on top of body area
+        placeBuilding(grid, tier2Row, 0, tier2Width, tier2Extra, tier2Type);
+      }
+      // Body rows: y+1 through y+1+extraBody (inclusive)
+      prevLeftBodyEnd = y + 1 + extraBody + 1;
+      prevLeftWidth = leftWidth;
+      prevLeftType = leftType;
+    } else {
+      prevLeftBodyEnd = -1;
     }
+
     if (hasRight && rightWidth >= 3) {
+      // Vertical bridge from prev body end to this building's first body row
+      const nextRightBodyStart = y + 1;
+      // Bridge column must be inside both buildings
+      const rightBridgeCol = Math.max(rightStart, prevRightStart); // innermost shared column
+      const rightHasBridge = prevRightBodyEnd >= 0 && nextRightBodyStart > prevRightBodyEnd
+          && rightBridgeCol >= rightStart && rightBridgeCol >= prevRightStart
+          && rand() < 0.8;
+      if (rightHasBridge) {
+        const bridgeTile = prevRightType === 'purple' ? BRIDGE_PURPLE : BRIDGE_GREEN;
+        for (let r = prevRightBodyEnd; r < nextRightBodyStart; r++) {
+          if (r >= 0 && r < totalRows) {
+            grid[r][rightBridgeCol] = [...bridgeTile];
+          }
+        }
+      }
       placeBuilding(grid, y, rightStart, rightWidth, extraBody, rightType);
+      // Door at bottom — press up to enter building, traverse body, exit at hole2
+      if (rightHasBridge && rand() < 0.5) {
+        const rightChunkH = rightType === 'purple' ? 5 : 3;
+        const doorRow = y + rightChunkH + extraBody - 1;
+        const doorCol = rightStart + Math.floor(rightWidth / 2);
+        // Hole 1: entry, near bottom of building body
+        const hole1Row = rightType === 'purple' ? (y + 2 + extraBody) : (y + 1 + extraBody);
+        const hole1Col = doorCol;
+        // Hole 2: on previous building near its bottom body row
+        const hole2Row = prevRightBodyEnd - 1;
+        const hole2Col = doorCol;
+        // Outside exit: on road next to hole2's row
+        const outsideRow = hole2Row;
+        const outsideCol = rightStart - 1;
+        if (doorRow >= 0 && doorRow < totalRows && doorCol < COLS
+            && hole1Row < totalRows && hole2Row >= 0 && hole2Row < totalRows
+            && outsideCol >= 0) {
+          grid[doorRow][doorCol] = [...DOOR_TILE];
+          if (doorRow + 1 < totalRows) grid[doorRow + 1][doorCol] = [...SAND];
+          doorPortals.push({ doorRow, doorCol, hole1Row, hole1Col, hole2Row, hole2Col, outsideRow, outsideCol });
+        }
+      }
+      // 2nd tier on right
+      if (rightWidth >= 5 && extraBody >= 2 && rand() < 0.4) {
+        const tier2Width = rightWidth - 2;
+        const tier2Extra = Math.max(0, extraBody - 2);
+        const tier2Type = rightType;
+        const tier2Start = COLS - tier2Width; // pushed to the right edge
+        const tier2Row = y + 1;
+        placeBuilding(grid, tier2Row, tier2Start, tier2Width, tier2Extra, tier2Type);
+      }
+      prevRightBodyEnd = y + 1 + extraBody + 1;
+      prevRightStart = rightStart;
+      prevRightType = rightType;
+    } else {
+      prevRightBodyEnd = -1;
     }
 
     const chunkH = (leftType === 'purple' || rightType === 'purple') ? 5 : 3;
@@ -120,9 +257,17 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; solid: b
   for (let r = 0; r < totalRows; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = grid[r][c];
-      if ((t[0] === 10 || t[0] === 11) && t[1] === 3 && rand() < 0.025) {
-        const decor = DECOR_TILES[Math.floor(rand() * DECOR_TILES.length)];
-        grid[r][c] = [...decor];
+      if ((t[0] === 10 || t[0] === 11) && t[1] === 3 && rand() < 0.04) {
+        const roll = rand();
+        if (roll < 0.4) {
+          // Overlay decoration (transparent bg, drawn on top of sand)
+          const ov = OVERLAY_TILES[Math.floor(rand() * OVERLAY_TILES.length)];
+          overlay[r][c] = [...ov];
+        } else {
+          // Opaque decoration (replaces sand)
+          const decor = DECOR_TILES[Math.floor(rand() * DECOR_TILES.length)];
+          grid[r][c] = [...decor];
+        }
       }
     }
   }
@@ -137,7 +282,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; solid: b
     solid.push(row);
   }
 
-  return { grid, solid };
+  return { grid, overlay, solid, doorPortals };
 }
 
 function placeBuilding(
@@ -215,6 +360,8 @@ function placeArea(grid: Tile[][], startRow: number, startCol: number, w: number
 const WORLD_ROWS_COUNT = 200;
 const worldData = generateWorld(WORLD_ROWS_COUNT);
 const WORLD_PATTERN = worldData.grid;
+const WORLD_OVERLAY = worldData.overlay;
+const WORLD_DOOR_PORTALS = worldData.doorPortals;
 
 // Stamp start area (bottom of initial view) and end area (reached after scrolling)
 const AREA_W = 14;
@@ -287,6 +434,13 @@ export function collidesWithWorld(
   return false;
 }
 
+/** Convert a screen Y position to a world tile row */
+function screenToWorldRow(screenY: number, scrollY: number): number {
+  const totalHeight = WORLD_ROWS * TILE_SIZE;
+  const effectiveScroll = (((-scrollY) % totalHeight) + totalHeight) % totalHeight;
+  return ((Math.floor((screenY + effectiveScroll) / TILE_SIZE)) % WORLD_ROWS + WORLD_ROWS) % WORLD_ROWS;
+}
+
 /** Convert a world tile row to screen Y given current camera scroll */
 export function worldRowToScreenY(row: number, scrollY: number): number {
   const totalHeight = WORLD_ROWS * TILE_SIZE;
@@ -307,6 +461,26 @@ function isBuildingBodyTile(t: Tile): boolean {
   if (t[0] >= 0 && t[0] <= 2 && t[1] >= 1 && t[1] <= 2) return true;
   // Green body: col 5-7, row 1
   if (t[0] >= 5 && t[0] <= 7 && t[1] === 1) return true;
+  // Bridge tiles
+  if (t[0] === BRIDGE_PURPLE[0] && t[1] === BRIDGE_PURPLE[1]) return true;
+  if (t[0] === BRIDGE_GREEN[0] && t[1] === BRIDGE_GREEN[1]) return true;
+  // Door tile
+  if (t[0] === DOOR_TILE[0] && t[1] === DOOR_TILE[1]) return true;
+  return false;
+}
+
+// Interior tiles — roof + body + bridge + door (excludes base/bottom)
+// Used for player inside-building traversal
+function isBuildingInteriorTile(t: Tile): boolean {
+  // Purple roof + body: col 0-2, row 0-2
+  if (t[0] >= 0 && t[0] <= 2 && t[1] >= 0 && t[1] <= 2) return true;
+  // Green roof + body: col 5-7, row 0-1
+  if (t[0] >= 5 && t[0] <= 7 && t[1] >= 0 && t[1] <= 1) return true;
+  // Bridge tiles
+  if (t[0] === BRIDGE_PURPLE[0] && t[1] === BRIDGE_PURPLE[1]) return true;
+  if (t[0] === BRIDGE_GREEN[0] && t[1] === BRIDGE_GREEN[1]) return true;
+  // Door tile
+  if (t[0] === DOOR_TILE[0] && t[1] === DOOR_TILE[1]) return true;
   return false;
 }
 
@@ -332,6 +506,50 @@ export function isBuildingBodyAt(screenX: number, screenY: number, scrollY: numb
   const tile = getTileAt(screenX, screenY, scrollY);
   if (!tile) return false;
   return isBuildingBodyTile(tile);
+}
+
+/** Check if a screen pixel is on an interior tile (roof+body+bridge — excludes base/bottom) */
+export function isBuildingInteriorAt(screenX: number, screenY: number, scrollY: number): boolean {
+  const tile = getTileAt(screenX, screenY, scrollY);
+  if (!tile) return false;
+  return isBuildingInteriorTile(tile);
+}
+
+/** Check if the player is standing at/near a door; if so return the hole1 screen coords.
+ *  Called when the player presses UP. */
+export function checkDoorInteraction(
+  screenX: number, screenY: number, w: number, h: number, scrollY: number
+): { screenX: number; screenY: number } | null {
+  const playerWorldRow = screenToWorldRow(screenY + h / 2, scrollY);
+  const playerCol = Math.floor((screenX + w / 2) / TILE_SIZE);
+
+  for (const p of WORLD_DOOR_PORTALS) {
+    if (p.doorCol === playerCol && (p.doorRow === playerWorldRow - 1 || p.doorRow === playerWorldRow)) {
+      return {
+        screenX: p.hole1Col * TILE_SIZE,
+        screenY: worldRowToScreenY(p.hole1Row, scrollY),
+      };
+    }
+  }
+  return null;
+}
+
+/** Check if the player reached hole 2; if so return the outside exit screen coords. */
+export function checkHole2Exit(
+  screenX: number, screenY: number, w: number, h: number, scrollY: number
+): { screenX: number; screenY: number } | null {
+  const playerWorldRow = screenToWorldRow(screenY + h / 2, scrollY);
+  const playerCol = Math.floor((screenX + w / 2) / TILE_SIZE);
+
+  for (const p of WORLD_DOOR_PORTALS) {
+    if (p.hole2Col === playerCol && p.hole2Row === playerWorldRow) {
+      return {
+        screenX: p.outsideCol * TILE_SIZE,
+        screenY: worldRowToScreenY(p.outsideRow, scrollY),
+      };
+    }
+  }
+  return null;
 }
 
 /** Find screen-Y spans where the left or right edge has building body tiles.
@@ -369,8 +587,39 @@ export function renderWorld(ctx: CanvasRenderingContext2D, scrollY: number): voi
     const row = WORLD_PATTERN[worldRow];
     const dy = r * TILE_SIZE + offsetY;
 
+    const ovRow = WORLD_OVERLAY[worldRow];
     for (let c = 0; c < COLS; c++) {
       drawTile(ctx, row[c][0], row[c][1], c * TILE_SIZE, dy);
+      // Draw overlay decoration on top
+      const ov = ovRow[c];
+      if (ov) {
+        drawTile(ctx, ov[0], ov[1], c * TILE_SIZE, dy);
+      }
+    }
+
+    // Draw black holes at portal hole1 and hole2 positions
+    for (const p of WORLD_DOOR_PORTALS) {
+      const drawHole = (holeRow: number, holeCol: number) => {
+        if (holeRow !== worldRow) return;
+        const bx = holeCol * TILE_SIZE + TILE_SIZE / 2;
+        const by = dy + TILE_SIZE / 2;
+        const radius = TILE_SIZE / 2;
+        const grad = ctx.createRadialGradient(bx, by, 0, bx, by, radius);
+        grad.addColorStop(0, '#000000');
+        grad.addColorStop(0.6, '#1a0033');
+        grad.addColorStop(1, 'rgba(40, 0, 60, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(bx, by, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#8844ff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(bx, by, radius * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+      };
+      drawHole(p.hole1Row, p.hole1Col);
+      drawHole(p.hole2Row, p.hole2Col);
     }
   }
 }
