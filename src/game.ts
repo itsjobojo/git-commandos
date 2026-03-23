@@ -8,6 +8,7 @@ import { Recruiter } from './entities/enemies/recruiter';
 import { Intern } from './entities/enemies/intern';
 
 import { OutlookSwarm } from './entities/enemies/outlook-swarm';
+import { AiBroStampede } from './entities/enemies/ai-bro-stampede';
 import { OutlookInvite } from './entities/outlook-invite';
 import { Pickup } from './entities/pickup';
 import { Particle } from './entities/particle';
@@ -17,7 +18,7 @@ import { playSound } from './core/sound';
 import { drawChar, playersTilemap } from './core/assets';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
 import { GameState } from './types';
-import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt } from './world';
+import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt, isBuildingInteriorAt, checkDoorInteraction, checkHole2Exit } from './world';
 import { AnnouncementSystem } from './systems/announcements';
 import { WeaponType, WEAPONS } from './weapons';
 
@@ -41,6 +42,9 @@ export class Game {
   private outlookInvites: OutlookInvite[] = [];
   private meetingModal: { name: string; age: number; acceptKey: string; declineKey: string } | null = null;
   private bossTitle = 0; // timer for boss title banner
+  private bossName = 'OUTLOOK INVITES';
+  private bossSubtitle = 'Shoot them down!';
+  private bossColor = '#e94560';
   private deathTimer = 0;
   private deathX = 0;
   private deathY = 0;
@@ -145,10 +149,14 @@ export class Game {
       this.rushHealTimer = 0;
     }
 
-    // Shooting
-    if (this.input.fire && this.player.canFire()) {
+    // Shooting — Q diagonal-left, E diagonal-right, Z/Space straight up
+    const wantFire = this.input.fire || this.input.fireLeft || this.input.fireRight;
+    if (wantFire && this.player.canFire()) {
       if (this.player.hasAmmo()) {
-        this.playerBullets.push(...this.player.fire());
+        let angle = -Math.PI / 2; // straight up
+        if (this.input.fireLeft) angle = -Math.PI * 3 / 4; // up-left
+        if (this.input.fireRight) angle = -Math.PI / 4;     // up-right
+        this.playerBullets.push(...this.player.fire(angle));
         playSound('shoot', 0.15);
       } else if (this.player.canMelee()) {
         this.player.melee();
@@ -193,28 +201,57 @@ export class Game {
     }
 
     // Save position, update, then check world collision
+    const prevCameraY = this.camera.y;
     const prevX = p.x;
     const prevY = p.y;
     p.update(dt);
 
-    // Resolve player collision with world — try X and Y separately
-    if (collidesWithWorld(p.x, prevY, p.width, p.height, this.camera.y)) {
-      p.x = prevX;
-    }
-    if (collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
-      p.y = prevY;
-    }
+    if (p.insideBuilding) {
+      // Inside building: constrain to interior tiles (roof+body+bridge, not base/bottom)
+      const cx = p.x + p.width / 2;
+      const cy = p.y + p.height / 2;
+      if (!isBuildingInteriorAt(cx, cy, this.camera.y)) {
+        p.x = prevX;
+        p.y = prevY;
+      }
+      // Don't scroll camera
 
-    // Camera scrolls
-    this.camera.update(dt);
+      // Check if player reached hole 2 → teleport outside
+      const exit = checkHole2Exit(p.x, p.y, p.width, p.height, this.camera.y);
+      if (exit) {
+        p.x = exit.screenX;
+        p.y = exit.screenY;
+        p.insideBuilding = false;
+      }
+    } else {
+      // Resolve player collision with world — try X and Y separately
+      if (collidesWithWorld(p.x, prevY, p.width, p.height, this.camera.y)) {
+        p.x = prevX;
+      }
+      if (collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
+        p.y = prevY;
+      }
 
-    // After scroll: check if player is now inside a solid tile (building came from above)
-    if (collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
-      // Push player down to stay ahead of the building
-      for (let nudge = 1; nudge <= 16; nudge++) {
-        p.y += 1;
-        if (!collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
-          break;
+      // Camera scrolls
+      this.camera.update(dt);
+
+      // After scroll: check if player is now inside a solid tile (building came from above)
+      if (collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
+        for (let nudge = 1; nudge <= 16; nudge++) {
+          p.y += 1;
+          if (!collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y)) {
+            break;
+          }
+        }
+      }
+
+      // Door interaction: player presses up against a door → teleport to hole 1
+      if (this.input.up) {
+        const result = checkDoorInteraction(p.x, p.y, p.width, p.height, this.camera.y);
+        if (result) {
+          p.x = result.screenX;
+          p.y = result.screenY;
+          p.insideBuilding = true;
         }
       }
     }
@@ -246,17 +283,32 @@ export class Game {
       this.spawnTimer = baseInterval + Math.random() * 2;
     }
 
+    // How much the camera scrolled this frame (buildings shift down by this amount)
+    const cameraScrollThisFrame = this.camera.y - prevCameraY;
+
     for (const enemy of this.enemies) {
+      if ((enemy as any)._sideSpawn) {
+        // Shift side-spawned enemies with the camera so they stay on their building
+        enemy.y += cameraScrollThisFrame;
+      }
+
       const ex = enemy.x;
       const ey = enemy.y;
       enemy.ai(dt, this.player.x + this.player.width / 2, this.player.y + this.player.height / 2);
       enemy.updateFlash(dt);
 
       if ((enemy as any)._sideSpawn) {
-        // Side-spawned enemies must stay on building body tiles (purple/green fill)
+        // Side-spawned enemies bounce back when they leave building body tiles
         const cx = enemy.x + enemy.width / 2;
         const cy = enemy.y + enemy.height / 2;
         if (!isBuildingBodyAt(cx, cy, this.camera.y)) {
+          enemy.x = ex;
+          enemy.y = ey;
+          enemy.vx = -enemy.vx;
+          enemy.vy = -enemy.vy;
+        }
+        // Remove when scrolled off screen
+        if (enemy.y > CANVAS_HEIGHT + 32) {
           enemy.active = false;
         }
       } else {
@@ -379,6 +431,14 @@ export class Game {
     this.popups = this.popups.filter((p) => p.timer > 0);
 
     if (this.shakeTimer > 0) this.shakeTimer -= dt;
+
+    // Continuous shake while AI Bro Stampede is on screen
+    for (const enemy of this.enemies) {
+      if (enemy instanceof AiBroStampede && enemy.active) {
+        this.shake(0.1, enemy.getShake());
+        break;
+      }
+    }
 
     this.playerBullets = this.playerBullets.filter((b) => b.active);
     this.enemyBullets = this.enemyBullets.filter((b) => b.active);
@@ -617,8 +677,8 @@ export class Game {
     ctx.fillStyle = `rgba(10, 5, 30, 0.9)`;
     ctx.fillRect(0, cy - 28, CANVAS_WIDTH, 56);
 
-    // Red accent lines
-    ctx.fillStyle = '#e94560';
+    // Accent lines
+    ctx.fillStyle = this.bossColor;
     ctx.fillRect(0, cy - 28, CANVAS_WIDTH, 2);
     ctx.fillRect(0, cy + 26, CANVAS_WIDTH, 2);
 
@@ -626,13 +686,13 @@ export class Game {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 20px "Pixelify Sans", sans-serif';
-    ctx.fillStyle = '#e94560';
-    ctx.fillText('OUTLOOK INVITES', cx, cy - 4);
+    ctx.fillStyle = this.bossColor;
+    ctx.fillText(this.bossName, cx, cy - 4);
 
     // Subtitle
     ctx.font = 'bold 10px "Pixelify Sans", sans-serif';
     ctx.fillStyle = '#ff8899';
-    ctx.fillText('Shoot them down!', cx, cy + 18);
+    ctx.fillText(this.bossSubtitle, cx, cy + 18);
 
     ctx.restore();
   }
@@ -774,13 +834,25 @@ export class Game {
           }
         }
       }
-    } else if (!this.outlookBossActive && waveType > 0.92) {
+    } else if (!this.outlookBossActive && waveType > 0.92 && waveType < 0.96) {
       // Outlook organizer mini-boss — rare, only one at a time
       const x = 40 + Math.random() * (CANVAS_WIDTH - 80);
       this.enemies.push(new OutlookSwarm(x, -20));
+      this.bossName = 'OUTLOOK INVITES';
+      this.bossSubtitle = 'Shoot them down!';
+      this.bossColor = '#e94560';
       this.bossTitle = 2.5;
       this.shake(0.3, 6);
       playSound('explosion', 0.4);
+    } else if (waveType >= 0.98 && !this.enemies.some(e => e instanceof AiBroStampede)) {
+      // AI Bro Stampede
+      this.enemies.push(new AiBroStampede(-30));
+      this.bossName = 'AI BRO STAMPEDE!';
+      this.bossSubtitle = 'HIDE!';
+      this.bossColor = '#3498db';
+      this.bossTitle = 2.5;
+      this.shake(0.5, 8);
+      playSound('explosion', 0.5);
     } else {
       // Recruiters from sides — on mountains
       const fromLeft = Math.random() < 0.5;
@@ -833,23 +905,23 @@ export class Game {
   }
 
   private maybeDropPickup(x: number, y: number): void {
-    if (Math.random() < 0.4) {
+    if (Math.random() < 0.5) {
       const roll = Math.random();
-      if (roll < 0.3) {
+      if (roll < 0.45) {
         // Weapon drop — weighted by game time
-        const weapons: WeaponType[] = this.gameTime < 30
+        const weapons: WeaponType[] = this.gameTime < 15
           ? ['smg']
-          : this.gameTime < 60
+          : this.gameTime < 35
             ? ['smg', 'machinegun']
             : ['smg', 'machinegun', 'shotgun'];
         const weapon = weapons[Math.floor(Math.random() * weapons.length)];
         this.pickups.push(new Pickup(x, y, 'weapon', weapon));
-      } else if (roll < 0.55) {
+      } else if (roll < 0.65) {
         // Ammo for current weapon
         this.pickups.push(new Pickup(x, y, 'ammo'));
-      } else if (roll < 0.75) {
+      } else if (roll < 0.80) {
         this.pickups.push(new Pickup(x, y, 'health'));
-      } else if (roll < 0.9) {
+      } else if (roll < 0.93) {
         this.pickups.push(new Pickup(x, y, 'revert'));
       } else {
         this.pickups.push(new Pickup(x, y, 'stash'));

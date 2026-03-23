@@ -22,6 +22,7 @@ export class Player extends Entity {
   weapon: WeaponType = 'pistol';
   meleeCooldown = 0;
   meleeTimer = 0;
+  insideBuilding = false;
 
   facing: number = 3; // col index: 0=down, 1=left, 2=right, 3=up
   private walkTimer = 0;
@@ -78,8 +79,9 @@ export class Player extends Entity {
     return this.ammo > 0;
   }
 
-  /** Fire current weapon — returns array of projectiles */
-  fire(): Projectile[] {
+  /** Fire current weapon — returns array of projectiles.
+   *  baseAngle defaults to straight up (-PI/2). */
+  fire(baseAngle: number = -Math.PI / 2): Projectile[] {
     const def = WEAPONS[this.weapon];
     this.fireCooldown = def.fireRate;
     this.ammo--;
@@ -100,7 +102,7 @@ export class Player extends Entity {
       bullet.damage = def.damage;
 
       // Calculate spread angle
-      let angle = -Math.PI / 2; // straight up
+      let angle = baseAngle;
       if (def.spread > 1) {
         // Evenly distribute across the cone
         const t = (i / (def.spread - 1)) - 0.5; // -0.5 to 0.5
