@@ -1,6 +1,7 @@
 import { GameLoop } from './core/loop';
 import { Game } from './game';
 import { waitForAssets } from './core/assets';
+import { connectGitContext } from './git-context';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 
@@ -15,8 +16,8 @@ ctx.font = '8px monospace';
 ctx.textAlign = 'center';
 ctx.fillText('Loading...', 128, 192);
 
-waitForAssets().then(() => {
-  const game = new Game(canvas);
+Promise.all([waitForAssets(), connectGitContext()]).then(([_, gitContext]) => {
+  const game = new Game(canvas, gitContext);
   const loop = new GameLoop(
     (dt) => game.update(dt),
     (alpha) => game.render(alpha)

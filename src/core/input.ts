@@ -50,6 +50,12 @@ export class Input {
   get fire(): boolean {
     return this.isDown('KeyZ') || this.isDown('Space');
   }
+  get fireLeft(): boolean {
+    return this.isDown('KeyQ');
+  }
+  get fireRight(): boolean {
+    return this.isDown('KeyE');
+  }
   get blame(): boolean {
     return this.justPressed('KeyX');
   }

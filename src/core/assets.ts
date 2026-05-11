@@ -89,11 +89,11 @@ export function drawWeapon(
 // Within each character: col 0=down, 1=left, 2=right, 3=up
 // Idle row, walk row alternate
 
-export function dirCol(vx: number, vy: number): number {
-  if (Math.abs(vx) > Math.abs(vy)) {
-    return vx < 0 ? 1 : 2;
-  }
-  return vy < 0 ? 3 : 0;
+// Only use col 1 (left) and col 2 (right) — avoid col 0 and col 3
+export function dirCol(vx: number, _vy: number): number {
+  if (vx < 0) return 1;
+  if (vx > 0) return 2;
+  return 2;
 }
 
 export function waitForAssets(): Promise<void> {
