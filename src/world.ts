@@ -115,9 +115,9 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
 
   let y = 0;
   while (y < totalRows - 10) {
-    // ~10% chance of a wide open desert section
-    if (rand() < 0.10) {
-      const desertRows = 8 + Math.floor(rand() * 10);
+    // ~5% chance of a wide open desert section
+    if (rand() < 0.05) {
+      const desertRows = 5 + Math.floor(rand() * 6);
       y += desertRows;
       // Reset bridge tracking on desert gaps
       prevLeftBodyEnd = -1;
@@ -125,11 +125,11 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
       continue;
     }
 
-    const hasLeft = rand() < 0.88;
+    const hasLeft = rand() < 0.96;
     const leftWidth = hasLeft ? (3 + Math.floor(rand() * (MAX_BUILDING_WIDTH - 2))) : 0;
     const leftType: 'purple' | 'green' = rand() < 0.65 ? 'purple' : 'green';
 
-    const hasRight = rand() < 0.88;
+    const hasRight = rand() < 0.96;
     const maxRight = Math.min(MAX_BUILDING_WIDTH, COLS - leftWidth - MIN_ROAD_WIDTH);
     const rightWidth = hasRight && maxRight >= 3 ? (3 + Math.floor(rand() * (maxRight - 2))) : 0;
     const rightType: 'purple' | 'green' = rand() < 0.65 ? 'purple' : 'green';
@@ -145,7 +145,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
       const leftBridgeCol = Math.min(prevLeftWidth, leftWidth) - 1;
       const leftHasBridge = prevLeftBodyEnd >= 0 && nextLeftBodyStart > prevLeftBodyEnd
           && leftBridgeCol >= 0 && leftBridgeCol < leftWidth && leftBridgeCol < prevLeftWidth
-          && rand() < 0.8;
+          && rand() < 0.92;
       if (leftHasBridge) {
         const bridgeTile = prevLeftType === 'purple' ? BRIDGE_PURPLE : BRIDGE_GREEN;
         for (let r = prevLeftBodyEnd; r < nextLeftBodyStart; r++) {
@@ -156,7 +156,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
       }
       placeBuilding(grid, y, 0, leftWidth, extraBody, leftType);
       // Door at bottom — press up to enter building, traverse body, exit at hole2
-      if (leftHasBridge && rand() < 0.5) {
+      if (leftHasBridge && rand() < 0.8) {
         const leftChunkH = leftType === 'purple' ? 5 : 3;
         const doorRow = y + leftChunkH + extraBody - 1; // last row of building
         const doorCol = Math.floor(leftWidth / 2); // centered
@@ -178,7 +178,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
         }
       }
       // 2nd tier: smaller building stacked on top (~40% chance, needs width >= 5)
-      if (leftWidth >= 5 && extraBody >= 2 && rand() < 0.4) {
+      if (leftWidth >= 5 && extraBody >= 2 && rand() < 0.65) {
         const tier2Width = leftWidth - 2;
         const tier2Extra = Math.max(0, extraBody - 2);
         const tier2Type = leftType;
@@ -200,7 +200,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
       const rightBridgeCol = Math.max(rightStart, prevRightStart); // innermost shared column
       const rightHasBridge = prevRightBodyEnd >= 0 && nextRightBodyStart > prevRightBodyEnd
           && rightBridgeCol >= rightStart && rightBridgeCol >= prevRightStart
-          && rand() < 0.8;
+          && rand() < 0.92;
       if (rightHasBridge) {
         const bridgeTile = prevRightType === 'purple' ? BRIDGE_PURPLE : BRIDGE_GREEN;
         for (let r = prevRightBodyEnd; r < nextRightBodyStart; r++) {
@@ -211,7 +211,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
       }
       placeBuilding(grid, y, rightStart, rightWidth, extraBody, rightType);
       // Door at bottom — press up to enter building, traverse body, exit at hole2
-      if (rightHasBridge && rand() < 0.5) {
+      if (rightHasBridge && rand() < 0.8) {
         const rightChunkH = rightType === 'purple' ? 5 : 3;
         const doorRow = y + rightChunkH + extraBody - 1;
         const doorCol = rightStart + Math.floor(rightWidth / 2);
@@ -233,7 +233,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
         }
       }
       // 2nd tier on right
-      if (rightWidth >= 5 && extraBody >= 2 && rand() < 0.4) {
+      if (rightWidth >= 5 && extraBody >= 2 && rand() < 0.65) {
         const tier2Width = rightWidth - 2;
         const tier2Extra = Math.max(0, extraBody - 2);
         const tier2Type = rightType;
@@ -257,7 +257,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
   for (let r = 0; r < totalRows; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = grid[r][c];
-      if ((t[0] === 10 || t[0] === 11) && t[1] === 3 && rand() < 0.04) {
+      if ((t[0] === 10 || t[0] === 11) && t[1] === 3 && rand() < 0.07) {
         const roll = rand();
         if (roll < 0.4) {
           // Overlay decoration (transparent bg, drawn on top of sand)
@@ -356,14 +356,7 @@ function placeArea(grid: Tile[][], startRow: number, startCol: number, w: number
   }
 }
 
-// Generate world
-const WORLD_ROWS_COUNT = 200;
-const worldData = generateWorld(WORLD_ROWS_COUNT);
-const WORLD_PATTERN = worldData.grid;
-const WORLD_OVERLAY = worldData.overlay;
-const WORLD_DOOR_PORTALS = worldData.doorPortals;
-
-// Stamp start area (bottom of initial view) and end area (reached after scrolling)
+// Mutable world state — regenerated by initWorld()
 const AREA_W = 14;
 const AREA_H = 8;
 const AREA_COL = Math.floor((COLS - AREA_W) / 2);
@@ -371,35 +364,53 @@ const AREA_COL = Math.floor((COLS - AREA_W) / 2);
 export const START_AREA = { row: 19, col: AREA_COL, w: AREA_W, h: AREA_H };
 export const END_AREA   = { row: 120, col: AREA_COL, w: AREA_W, h: AREA_H };
 
-placeArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, AREA_W, AREA_H);
-placeArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, AREA_W, AREA_H);
+let WORLD_PATTERN: Tile[][] = [];
+let WORLD_OVERLAY: (Tile | null)[][] = [];
+let WORLD_DOOR_PORTALS: DoorPortal[] = [];
+let SOLID_MAP: boolean[][] = [];
 
-// Clear buildings around the areas (2-tile margin of sand)
-function clearAroundArea(grid: Tile[][], areaRow: number, areaCol: number, aw: number, ah: number): void {
+export let WORLD_ROWS = 0;
+
+function clearAroundArea(grid: Tile[][], areaRow: number, areaCol: number, aw: number, ah: number, totalRows: number): void {
   const margin = 2;
   for (let r = areaRow - margin; r < areaRow + ah + margin; r++) {
     for (let c = areaCol - margin; c < areaCol + aw + margin; c++) {
-      const gr = ((r % WORLD_ROWS_COUNT) + WORLD_ROWS_COUNT) % WORLD_ROWS_COUNT;
+      const gr = ((r % totalRows) + totalRows) % totalRows;
       if (c < 0 || c >= COLS) continue;
-      // Don't overwrite the area itself
       if (r >= areaRow && r < areaRow + ah && c >= areaCol && c < areaCol + aw) continue;
       grid[gr][c] = [...SAND];
     }
   }
 }
-clearAroundArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, AREA_W, AREA_H);
-clearAroundArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, AREA_W, AREA_H);
 
-// Build collision map after areas are placed
-const SOLID_MAP = worldData.solid;
-// Rebuild solid map to account for area stamps
-for (let r = 0; r < WORLD_ROWS_COUNT; r++) {
-  for (let c = 0; c < COLS; c++) {
-    SOLID_MAP[r][c] = isSolidTile(WORLD_PATTERN[r][c]);
+export function initWorld(totalRows: number): void {
+  const worldData = generateWorld(totalRows);
+  WORLD_PATTERN = worldData.grid;
+  WORLD_OVERLAY = worldData.overlay;
+  WORLD_DOOR_PORTALS = worldData.doorPortals;
+  SOLID_MAP = worldData.solid;
+
+  START_AREA.row = 19;
+  END_AREA.row = totalRows - 20;
+
+  placeArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, AREA_W, AREA_H);
+  placeArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, AREA_W, AREA_H);
+
+  clearAroundArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, AREA_W, AREA_H, totalRows);
+  clearAroundArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, AREA_W, AREA_H, totalRows);
+
+  // Rebuild solid map to account for area stamps
+  for (let r = 0; r < totalRows; r++) {
+    for (let c = 0; c < COLS; c++) {
+      SOLID_MAP[r][c] = isSolidTile(WORLD_PATTERN[r][c]);
+    }
   }
+
+  WORLD_ROWS = totalRows;
 }
 
-export const WORLD_ROWS = WORLD_PATTERN.length;
+// Default initialization (title screen background, standalone mode)
+initWorld(300);
 
 /** Check if a pixel-space rectangle collides with any solid tiles */
 export function collidesWithWorld(

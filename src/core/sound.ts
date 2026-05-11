@@ -36,6 +36,30 @@ function getPool(path: string): HTMLAudioElement[] {
   return pool;
 }
 
+let musicEl: HTMLAudioElement | null = null;
+
+export function playMusic(path = '/music/chiptune.ogg', volume = 0.25): void {
+  if (!musicEl) {
+    musicEl = new Audio(path);
+    musicEl.loop = true;
+  }
+  musicEl.volume = volume;
+  musicEl.play().catch(() => {
+    // Autoplay blocked — will be retried on next user gesture
+  });
+}
+
+export function stopMusic(): void {
+  if (musicEl) {
+    musicEl.pause();
+    musicEl.currentTime = 0;
+  }
+}
+
+export function setMusicVolume(volume: number): void {
+  if (musicEl) musicEl.volume = volume;
+}
+
 export function playSound(name: SoundName, volume = 0.3): void {
   const paths = soundPaths[name];
   const path = paths[Math.floor(Math.random() * paths.length)];

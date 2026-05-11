@@ -14,13 +14,14 @@ import { Pickup } from './entities/pickup';
 import { Particle } from './entities/particle';
 import { aabb } from './core/collision';
 import { renderHud } from './systems/hud';
-import { playSound } from './core/sound';
+import { playSound, playMusic } from './core/sound';
 import { drawChar, playersTilemap } from './core/assets';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
 import { GameState } from './types';
-import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt, isBuildingInteriorAt, checkDoorInteraction, checkHole2Exit } from './world';
+import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt, isBuildingInteriorAt, checkDoorInteraction, checkHole2Exit, initWorld } from './world';
 import { AnnouncementSystem } from './systems/announcements';
 import { WeaponType, WEAPONS } from './weapons';
+import { GitContext, GitFile } from './git-context';
 
 export class Game {
   private renderer: Renderer;
@@ -53,11 +54,37 @@ export class Game {
   private rushHealTimer = 0;
   private announcements = new AnnouncementSystem();
 
-  constructor(canvas: HTMLCanvasElement) {
+  // Git integration
+  private gitContext: GitContext | null;
+  private gitFiles: GitFile[] = [];
+  private resultSent = false;
+  private gameRows = 300;
+
+  constructor(canvas: HTMLCanvasElement, gitContext: GitContext | null = null) {
     this.renderer = new Renderer(canvas);
     this.input = new Input();
     this.camera = new Camera();
     this.player = new Player();
+    this.gitContext = gitContext;
+
+    // In git mode, skip title and go straight to level-intro
+    if (this.gitContext) {
+      this.gitFiles = this.gitContext.payload.files;
+      const linesAdded = this.gitContext.payload.linesAdded;
+      const fileCount = this.gitFiles.length;
+      this.gameRows = Math.min(1800, Math.max(250, 250 + Math.floor(linesAdded * 1.75) + fileCount * 25));
+      initWorld(this.gameRows);
+      this.state = 'level-intro';
+      this.setupGitHp();
+    }
+  }
+
+  /** Map staged files to player HP (max 8 HP) */
+  private setupGitHp(): void {
+    const fileCount = this.gitFiles.length;
+    const maxHp = Math.min(fileCount, 8);
+    this.player.maxHp = maxHp;
+    this.player.hp = maxHp;
   }
 
   update(dt: number): void {
@@ -66,6 +93,7 @@ export class Game {
         this.state = 'playing';
         this.reset();
         playSound('select');
+        playMusic();
       }
       // Scroll bg on title screen for effect
       this.camera.update(dt);
@@ -73,11 +101,26 @@ export class Game {
       return;
     }
 
-    if (this.state === 'game-over' || this.state === 'win') {
-      if (this.input.justPressed('Enter') || this.input.fire) {
-        this.state = 'title';
+    if (this.state === 'level-intro') {
+      if (this.input.fire || this.input.justPressed('Enter')) {
+        this.state = 'playing';
+        this.reset();
         playSound('select');
+        playMusic();
       }
+      this.input.endFrame();
+      return;
+    }
+
+    if (this.state === 'game-over' || this.state === 'win') {
+      if (!this.gitContext) {
+        // Classic mode — return to title
+        if (this.input.justPressed('Enter') || this.input.fire) {
+          this.state = 'title';
+          playSound('select');
+        }
+      }
+      // In git mode, win/game-over screens are terminal (browser closes)
       this.input.endFrame();
       return;
     }
@@ -268,6 +311,7 @@ export class Game {
     ) {
       this.state = 'win';
       playSound('coin', 0.4);
+      this.sendGitResult('win');
     }
 
     // If player is pushed off the bottom of the screen — death
@@ -453,6 +497,9 @@ export class Game {
       this.deathX = this.player.x;
       this.deathY = this.player.y;
       playSound('lose', 0.4);
+      // Mark all remaining alive files as dead
+      for (const f of this.gitFiles) f.alive = false;
+      this.sendGitResult('loss');
     }
 
     this.input.endFrame();
@@ -467,13 +514,26 @@ export class Game {
       return;
     }
 
+    if (this.state === 'level-intro') {
+      this.renderLevelIntro(ctx);
+      return;
+    }
+
     if (this.state === 'game-over') {
-      this.renderGameOver(ctx);
+      if (this.gitContext) {
+        this.renderGitGameOver(ctx);
+      } else {
+        this.renderGameOver(ctx);
+      }
       return;
     }
 
     if (this.state === 'win') {
-      this.renderWin(ctx);
+      if (this.gitContext) {
+        this.renderGitWin(ctx);
+      } else {
+        this.renderWin(ctx);
+      }
       return;
     }
 
@@ -516,7 +576,7 @@ export class Game {
     // Announcement overlay (rendered on top of game, under HUD)
     this.announcements.render(ctx);
 
-    renderHud(ctx, this.player);
+    renderHud(ctx, this.player, this.gitContext ? this.gitFiles : null);
 
     if (this.bossTitle > 0) {
       this.renderBossTitle(ctx);
@@ -888,6 +948,8 @@ export class Game {
       }
     }
     this.enemies = this.enemies.filter((e) => e.active);
+    // Revert recovers a lost file
+    this.recoverGitFile();
     this.addPopup('REVERT!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
   }
 
@@ -943,6 +1005,7 @@ export class Game {
       }
       case 'health':
         this.player.hp = Math.min(this.player.maxHp, this.player.hp + 1);
+        this.recoverGitFile();
         this.addPopup('HP+1', px, py);
         break;
       case 'revert':
@@ -970,10 +1033,187 @@ export class Game {
           this.spawnExplosion(strongest.x, strongest.y);
           this.player.score += strongest.scoreValue * 2;
         }
+        this.recoverGitFile();
         this.addPopup('CHERRY-PICK!', px, py);
         break;
       }
     }
+  }
+
+  // --- Git integration helpers ---
+
+  /** Recover the most recently lost file (used by revert and cherry-pick pickups). */
+  private recoverGitFile(): void {
+    if (!this.gitContext) return;
+    // Find last dead file and revive it
+    for (let i = this.gitFiles.length - 1; i >= 0; i--) {
+      if (!this.gitFiles[i].alive) {
+        this.gitFiles[i].alive = true;
+        this.addPopup(`RECOVERED: ${this.gitFiles[i].name.split('/').pop()}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+        return;
+      }
+    }
+  }
+
+  /** Send game result to CLI via WebSocket */
+  private sendGitResult(outcome: 'win' | 'loss'): void {
+    if (!this.gitContext || this.resultSent) return;
+    this.resultSent = true;
+    const surviving = this.gitFiles.filter((f) => f.alive).map((f) => f.name);
+    const lost = this.gitFiles.filter((f) => !f.alive).map((f) => f.name);
+    this.gitContext.sendResult(outcome, surviving, lost);
+  }
+
+  private renderLevelIntro(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = 'rgba(15, 15, 35, 0.95)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    const cx = CANVAS_WIDTH / 2;
+
+    ctx.fillStyle = '#2ecc71';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('$ git commit', cx, 50);
+
+    if (this.gitContext) {
+      const msg = this.gitContext.payload.commitMessage;
+      ctx.fillStyle = '#f7dc6f';
+      ctx.font = '8px monospace';
+      ctx.fillText(`-m "${msg}"`, cx, 70);
+
+      ctx.fillStyle = '#ecf0f1';
+      ctx.font = '7px monospace';
+      ctx.fillText(`${this.gitFiles.length} file(s) staged = ${this.player.maxHp} HP`, cx, 95);
+
+      // File list
+      const startY = 115;
+      const maxShow = Math.min(this.gitFiles.length, 10);
+      for (let i = 0; i < maxShow; i++) {
+        const f = this.gitFiles[i];
+        ctx.fillStyle = '#2ecc71';
+        ctx.fillText(`+ ${f.name}`, cx, startY + i * 12);
+      }
+      if (this.gitFiles.length > maxShow) {
+        ctx.fillStyle = '#7f8c8d';
+        ctx.fillText(`... and ${this.gitFiles.length - maxShow} more`, cx, startY + maxShow * 12);
+      }
+
+      // Game length info
+      const linesAdded = this.gitContext.payload.linesAdded;
+      const infoY = startY + Math.min(this.gitFiles.length, 11) * 12 + 10;
+      ctx.fillStyle = '#bdc3c7';
+      ctx.font = '7px monospace';
+      const estSeconds = Math.round(this.gameRows * 0.55);
+      const estMin = Math.floor(estSeconds / 60);
+      const estSec = estSeconds % 60;
+      const estLabel = estMin > 0 ? `~${estMin}m ${estSec}s` : `~${estSec}s`;
+      ctx.fillText(`${linesAdded} lines + ${this.gitFiles.length} files \u2192 ${this.gameRows} rows (${estLabel})`, cx, infoY);
+
+      const diffLabel = this.gitContext.difficulty === 'extreme' ? 'EXTREME (files DELETED on death!)' : 'BASIC (files unstaged on death)';
+      ctx.fillStyle = this.gitContext.difficulty === 'extreme' ? '#e94560' : '#3498db';
+      ctx.font = '7px monospace';
+      ctx.fillText(diffLabel, cx, infoY + 15);
+    }
+
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillStyle = '#f5a623';
+      ctx.font = '8px monospace';
+      ctx.fillText('Press Z or ENTER to start', cx, CANVAS_HEIGHT - 40);
+    }
+  }
+
+  private renderGitWin(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = 'rgba(5, 20, 10, 0.95)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    const cx = CANVAS_WIDTH / 2;
+
+    ctx.fillStyle = '#2ecc71';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('COMMIT SUCCESSFUL', cx, 60);
+
+    ctx.fillStyle = '#f7dc6f';
+    ctx.font = '8px monospace';
+    ctx.fillText(`"${this.gitContext!.payload.commitMessage}"`, cx, 85);
+
+    drawChar(ctx, playersTilemap, 2, 1, cx - 12, 100);
+
+    // File results
+    let y = 140;
+    ctx.font = '7px monospace';
+    for (const f of this.gitFiles) {
+      if (f.alive) {
+        ctx.fillStyle = '#2ecc71';
+        ctx.fillText(`\u2713 ${f.name}`, cx, y);
+      } else {
+        ctx.fillStyle = '#e94560';
+        ctx.fillText(`\u2717 ${f.name}`, cx, y);
+      }
+      y += 12;
+    }
+
+    const surviving = this.gitFiles.filter((f) => f.alive).length;
+    const lost = this.gitFiles.filter((f) => !f.alive).length;
+
+    y += 10;
+    ctx.fillStyle = '#ecf0f1';
+    ctx.font = '8px monospace';
+    ctx.fillText(`${surviving} committed, ${lost} lost`, cx, y);
+
+    y += 15;
+    ctx.fillStyle = '#f7dc6f';
+    ctx.font = '10px monospace';
+    ctx.fillText(`Score: ${this.player.score}`, cx, y);
+
+    ctx.fillStyle = '#7f8c8d';
+    ctx.font = '6px monospace';
+    ctx.fillText('You can close this tab', cx, CANVAS_HEIGHT - 20);
+  }
+
+  private renderGitGameOver(ctx: CanvasRenderingContext2D): void {
+    ctx.fillStyle = 'rgba(15, 15, 35, 0.95)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    const cx = CANVAS_WIDTH / 2;
+
+    ctx.fillStyle = '#e94560';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('COMMIT FAILED', cx, 60);
+
+    // Dead character
+    ctx.save();
+    ctx.translate(cx, 90);
+    ctx.rotate(Math.PI / 2);
+    drawChar(ctx, playersTilemap, 0, 0, -12, -12);
+    ctx.restore();
+
+    const isExtreme = this.gitContext!.difficulty === 'extreme';
+
+    // File results
+    let y = 130;
+    ctx.font = '7px monospace';
+    for (const f of this.gitFiles) {
+      ctx.fillStyle = '#e94560';
+      const action = isExtreme ? 'DELETED' : 'unstaged';
+      ctx.fillText(`\u2717 ${f.name} — ${action}`, cx, y);
+      y += 12;
+    }
+
+    y += 10;
+    ctx.fillStyle = '#7f8c8d';
+    ctx.font = '6px monospace';
+    ctx.fillText(isExtreme ? '$ rm -f <files> && git reset HEAD' : '$ git reset HEAD -- <files>', cx, y);
+
+    y += 20;
+    ctx.fillStyle = '#f7dc6f';
+    ctx.font = '10px monospace';
+    ctx.fillText(`Score: ${this.player.score}`, cx, y);
+
+    ctx.fillStyle = '#7f8c8d';
+    ctx.font = '6px monospace';
+    ctx.fillText('You can close this tab', cx, CANVAS_HEIGHT - 20);
   }
 
   private reset(): void {
@@ -992,5 +1232,12 @@ export class Game {
     this.gameTime = 0;
     this.rushHealTimer = 0;
     this.announcements = new AnnouncementSystem();
+
+    // Restore git HP if in git mode
+    if (this.gitContext) {
+      for (const f of this.gitFiles) f.alive = true;
+      this.setupGitHp();
+      this.resultSent = false;
+    }
   }
 }

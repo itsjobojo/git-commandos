@@ -1,8 +1,9 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants';
 import { Player } from '../entities/player';
 import { WEAPONS } from '../weapons';
+import { GitFile } from '../git-context';
 
-export function renderHud(ctx: CanvasRenderingContext2D, player: Player): void {
+export function renderHud(ctx: CanvasRenderingContext2D, player: Player, gitFiles: GitFile[] | null = null): void {
   ctx.save();
 
   // Top bar background
@@ -46,6 +47,54 @@ export function renderHud(ctx: CanvasRenderingContext2D, player: Player): void {
   ctx.font = 'bold 6px monospace';
   ctx.textAlign = 'right';
   ctx.fillText('HP', barX - 2, barY + 5);
+
+  // Git file strip — below top bar
+  if (gitFiles && gitFiles.length > 0) {
+    const stripY = 15;
+    const stripH = 10;
+    ctx.fillStyle = 'rgba(10, 5, 20, 0.6)';
+    ctx.fillRect(0, stripY, CANVAS_WIDTH, stripH);
+
+    ctx.font = '5px monospace';
+    ctx.textAlign = 'left';
+    const maxShow = Math.min(gitFiles.length, 8);
+    const slotW = CANVAS_WIDTH / maxShow;
+
+    for (let i = 0; i < maxShow; i++) {
+      const f = gitFiles[i];
+      const x = i * slotW + 2;
+      const label = f.name.split('/').pop() || f.name;
+      const truncated = label.length > 10 ? label.slice(0, 9) + '\u2026' : label;
+
+      if (f.alive) {
+        // Green dot + name
+        ctx.fillStyle = '#2ecc71';
+        ctx.fillRect(x, stripY + 3, 3, 3);
+        ctx.fillStyle = '#ccddcc';
+        ctx.fillText(truncated, x + 5, stripY + 7);
+      } else {
+        // Red dot + strikethrough name
+        ctx.fillStyle = '#e94560';
+        ctx.fillRect(x, stripY + 3, 3, 3);
+        ctx.fillStyle = '#886666';
+        ctx.fillText(truncated, x + 5, stripY + 7);
+        // Strikethrough line
+        const textW = ctx.measureText(truncated).width;
+        ctx.strokeStyle = '#e94560';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(x + 5, stripY + 5.5);
+        ctx.lineTo(x + 5 + textW, stripY + 5.5);
+        ctx.stroke();
+      }
+    }
+
+    if (gitFiles.length > maxShow) {
+      ctx.fillStyle = '#7f8c8d';
+      ctx.textAlign = 'right';
+      ctx.fillText(`+${gitFiles.length - maxShow}`, CANVAS_WIDTH - 2, stripY + 7);
+    }
+  }
 
   // Bottom bar background
   ctx.fillStyle = 'rgba(10, 5, 20, 0.7)';
