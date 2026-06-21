@@ -7,11 +7,13 @@ export interface CommitPayload {
   files: GitFile[];
   commitMessage: string;
   linesAdded: number;
+  gameRows?: number;
 }
 
 export interface GitContext {
   command: string;
   difficulty: 'basic' | 'extreme';
+  music: boolean;
   payload: CommitPayload;
   sendResult: (outcome: 'win' | 'loss', surviving: string[], lost: string[]) => void;
 }
@@ -49,10 +51,12 @@ export function connectGitContext(): Promise<GitContext | null> {
           const ctx: GitContext = {
             command: msg.command,
             difficulty: msg.difficulty,
+            music: msg.music !== false,
             payload: {
               files,
               commitMessage: msg.payload.commitMessage,
               linesAdded: msg.payload.linesAdded ?? 0,
+              gameRows: msg.payload.gameRows,
             },
             sendResult(outcome, surviving, lost) {
               ws.send(JSON.stringify({

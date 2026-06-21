@@ -67,3 +67,66 @@ export function deleteFiles(files) {
     }
   }
 }
+
+export function getCurrentBranch() {
+  return run('git branch --show-current') || 'HEAD';
+}
+
+export function getUpstream() {
+  try {
+    return run('git rev-parse --abbrev-ref @{u}');
+  } catch {
+    return null;
+  }
+}
+
+export function getAheadCommits(upstream) {
+  const out = run(`git log ${upstream}..HEAD --format=%s`);
+  return out ? out.split('\n').filter(Boolean) : [];
+}
+
+export function getAheadDiffStats(upstream) {
+  const out = run(`git diff ${upstream}..HEAD --numstat`);
+  if (!out) return { files: [], totalAdded: 0 };
+  const files = [];
+  let totalAdded = 0;
+  for (const line of out.split('\n')) {
+    const [a, , name] = line.split('\t');
+    const added = a === '-' ? 0 : parseInt(a, 10);
+    files.push({ name, added });
+    totalAdded += added;
+  }
+  return { files, totalAdded };
+}
+
+export function pushBranch(remote, branch, force = false) {
+  const forceFlag = force ? ' --force-with-lease' : '';
+  run(`git push ${remote} ${branch}${forceFlag}`);
+}
+
+export function getMergeDiffStats(branch) {
+  const out = run(`git diff HEAD...${branch} --numstat`);
+  if (!out) return { files: [], totalAdded: 0 };
+  const files = [];
+  let totalAdded = 0;
+  for (const line of out.split('\n')) {
+    const [a, , name] = line.split('\t');
+    const added = a === '-' ? 0 : parseInt(a, 10);
+    files.push({ name, added });
+    totalAdded += added;
+  }
+  return { files, totalAdded };
+}
+
+export function mergeBranch(branch, message) {
+  const msgFlag = message ? ` -m ${JSON.stringify(message)}` : '';
+  run(`git merge --no-ff ${branch}${msgFlag}`);
+}
+
+export function abortMerge() {
+  try { run('git merge --abort'); } catch {}
+}
+
+export function hardReset(ref) {
+  run(`git reset --hard ${ref}`);
+}
