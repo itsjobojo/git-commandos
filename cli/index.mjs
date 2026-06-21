@@ -13,6 +13,7 @@ const args = process.argv.slice(2);
 // Parse global flags
 const flags = {
   extreme: args.includes('--extreme'),
+  noMusic: args.includes('--no-music'),
   help: args.includes('--help') || args.includes('-h'),
 };
 const filteredArgs = args.filter((a) => !a.startsWith('--'));
@@ -38,6 +39,7 @@ async function listCommands() {
   }
   console.log('\n  Flags:');
   console.log('    --extreme    Lost files are DELETED from disk (not just unstaged)');
+  console.log('    --no-music   Disable in-game music');
   console.log('    --help       Show this help\n');
 }
 

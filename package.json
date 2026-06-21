@@ -15,7 +15,8 @@
     "dev": "vite",
     "build": "vite build",
     "prepublishOnly": "vite build",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "node -e \"const fs=require('fs');fs.mkdirSync('public/audio',{recursive:true});['chiptune3.worklet.js','libopenmpt.worklet.js'].forEach(f=>fs.copyFileSync('node_modules/chiptune3/'+f,'public/audio/'+f))\""
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
     "vite": "^8.0.1"
   },
   "dependencies": {
+    "chiptune3": "^0.8.7",
     "open": "^10.1.0",
     "ws": "^8.18.0"
   }

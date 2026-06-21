@@ -391,7 +391,7 @@ export function initWorld(totalRows: number): void {
   SOLID_MAP = worldData.solid;
 
   START_AREA.row = 19;
-  END_AREA.row = totalRows - 20;
+  END_AREA.row = 40; // ~87% of world rows must scroll before this wraps back on-screen
 
   placeArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, AREA_W, AREA_H);
   placeArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, AREA_W, AREA_H);
@@ -409,8 +409,8 @@ export function initWorld(totalRows: number): void {
   WORLD_ROWS = totalRows;
 }
 
-// Default initialization (title screen background, standalone mode)
-initWorld(300);
+// Default initialization (title screen background, standalone mode ~8 min)
+initWorld(800);
 
 /** Check if a pixel-space rectangle collides with any solid tiles */
 export function collidesWithWorld(

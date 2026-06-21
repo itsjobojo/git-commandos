@@ -51,6 +51,7 @@ export async function run(args, flags) {
   const config = {
     command: 'commit',
     difficulty,
+    music: !flags.noMusic,
     payload: {
       files,
       commitMessage,
