@@ -12,6 +12,9 @@ function loadImg(path: string): HTMLImageElement {
   return img;
 }
 
+// ── Logo ──
+export const logoImg = loadImg('/images/logo.png');
+
 // ── Tilemaps ──
 export const tilesTilemap = loadImg('/sprites/tilemap.png');       // 16x16 tiles, 18 cols, 13 rows, 1px spacing
 export const weaponsTilemap = loadImg('/sprites/weapons_tilemap.png'); // 24x24 tiles, 10 cols, 4 rows, 1px spacing
@@ -20,8 +23,9 @@ export const enemiesTilemap = loadImg('/sprites/enemies_tilemap.png'); // 24x24 
 
 // ── Individual enemy PNGs (16x16) ──
 export const enemySprites: HTMLImageElement[] = [
-  'tile_0082', 'tile_0084', 'tile_0085', 'tile_0086', 'tile_0087', 'tile_0088',
-  'tile_0100', 'tile_0108', 'tile_0109', 'tile_0110', 'tile_0111', 'tile_0112',
+  'tile_0085', 'tile_0086', 'tile_0087', 'tile_0088',
+  'tile_0096', 'tile_0097', 'tile_0098',
+  'tile_0109', 'tile_0111', 'tile_0112',
 ].map(n => loadImg(`/sprites/enemies/${n}.png`));
 
 // Dedicated sprite for the outlook organizer (not in general pool)

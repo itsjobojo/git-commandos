@@ -2,21 +2,25 @@ import { GameLoop } from './core/loop';
 import { Game } from './game';
 import { waitForAssets } from './core/assets';
 import { connectGitContext } from './git-context';
+import { initMusicPlayer } from './core/music';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCALE } from './constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
+canvas.width = CANVAS_WIDTH * SCALE;
+canvas.height = CANVAS_HEIGHT * SCALE;
+canvas.style.width = '100vmin';
+canvas.style.height = '100vmin';
 
-// Show loading text
 const ctx = canvas.getContext('2d')!;
-canvas.width = 256;
-canvas.height = 384;
+ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
 ctx.fillStyle = '#0f0f23';
-ctx.fillRect(0, 0, 256, 384);
+ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 ctx.fillStyle = '#2ecc71';
-ctx.font = '8px monospace';
+ctx.font = '14px monospace';
 ctx.textAlign = 'center';
-ctx.fillText('Loading...', 128, 192);
+ctx.fillText('Loading...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
 
-Promise.all([waitForAssets(), connectGitContext()]).then(([_, gitContext]) => {
+Promise.all([waitForAssets(), connectGitContext(), initMusicPlayer()]).then(([_, gitContext]) => {
   const game = new Game(canvas, gitContext);
   const loop = new GameLoop(
     (dt) => game.update(dt),
