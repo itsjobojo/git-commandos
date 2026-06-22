@@ -6,10 +6,10 @@ export class Renderer {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.canvas.width = CANVAS_WIDTH;
-    this.canvas.height = CANVAS_HEIGHT;
-    this.canvas.style.width = `${CANVAS_WIDTH * SCALE}px`;
-    this.canvas.style.height = `${CANVAS_HEIGHT * SCALE}px`;
+    this.canvas.width = CANVAS_WIDTH * SCALE;
+    this.canvas.height = CANVAS_HEIGHT * SCALE;
+    this.canvas.style.width = '100vmin';
+    this.canvas.style.height = '100vmin';
 
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Failed to get 2d context');
@@ -18,6 +18,10 @@ export class Renderer {
   }
 
   clear(): void {
+    // Reset transform and apply game scale every frame.
+    // Canvas buffer is SCALE× larger so text renders at native resolution;
+    // imageSmoothingEnabled stays false so sprites remain pixel-perfect.
+    this.ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     this.ctx.fillStyle = '#0f0f23';
     this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   }

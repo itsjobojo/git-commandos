@@ -62,4 +62,7 @@ export class Input {
   get revert(): boolean {
     return this.justPressed('KeyC');
   }
+  get anyJustPressed(): boolean {
+    return this.justPressedKeys.size > 0;
+  }
 }

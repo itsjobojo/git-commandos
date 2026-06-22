@@ -15,7 +15,7 @@ import { Particle } from './entities/particle';
 import { aabb } from './core/collision';
 import { renderHud } from './systems/hud';
 import { playSound, playMusic } from './core/sound';
-import { drawChar, playersTilemap } from './core/assets';
+import { drawChar, playersTilemap, logoImg } from './core/assets';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
 import { GameState } from './types';
 import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt, isBuildingInteriorAt, checkDoorInteraction, checkHole2Exit, initWorld } from './world';
@@ -54,11 +54,17 @@ export class Game {
   private rushHealTimer = 0;
   private announcements = new AnnouncementSystem();
 
+  // Guaranteed boss tracking — each spawns at least once per run
+  private outlookBossSpawned = false;
+  private aiBroSpawned = false;
+
+  private showInfo = false;
+
   // Git integration
   private gitContext: GitContext | null;
   private gitFiles: GitFile[] = [];
   private resultSent = false;
-  private gameRows = 300;
+  private gameRows = 3000;
 
   constructor(canvas: HTMLCanvasElement, gitContext: GitContext | null = null) {
     this.renderer = new Renderer(canvas);
@@ -72,7 +78,13 @@ export class Game {
       this.gitFiles = this.gitContext.payload.files;
       const linesAdded = this.gitContext.payload.linesAdded;
       const fileCount = this.gitFiles.length;
-      this.gameRows = Math.min(1800, Math.max(250, 250 + Math.floor(linesAdded * 1.75) + fileCount * 25));
+      if (this.gitContext.payload.gameRows) {
+        this.gameRows = this.gitContext.payload.gameRows;
+      } else {
+        this.gameRows = Math.min(1520, Math.max(320,
+          Math.floor(320 + fileCount * 72 + linesAdded * 0.2)
+        ));
+      }
       initWorld(this.gameRows);
       this.state = 'level-intro';
       this.setupGitHp();
@@ -102,11 +114,11 @@ export class Game {
     }
 
     if (this.state === 'level-intro') {
-      if (this.input.fire || this.input.justPressed('Enter')) {
+      if (this.input.anyJustPressed) {
         this.state = 'playing';
         this.reset();
         playSound('select');
-        playMusic();
+        if (this.gitContext?.music !== false) playMusic();
       }
       this.input.endFrame();
       return;
@@ -151,6 +163,8 @@ export class Game {
         }
       }
     }
+
+    if (this.input.justPressed('KeyI')) this.showInfo = !this.showInfo;
 
     this.gameTime += dt;
     if (this.bossTitle > 0) this.bossTitle -= dt;
@@ -224,6 +238,22 @@ export class Game {
               playSound('explosion', 0.25);
               this.maybeDropPickup(enemy.x, enemy.y);
             }
+          }
+        }
+        for (const bullet of this.enemyBullets) {
+          if (!bullet.active) continue;
+          if (aabb(meleeBox, bullet.getBounds())) {
+            bullet.active = false;
+            this.addPopup('DEFLECT', bullet.x + bullet.width / 2, bullet.y);
+          }
+        }
+        for (const invite of this.outlookInvites) {
+          if (!invite.active) continue;
+          if (aabb(meleeBox, invite.getBounds())) {
+            invite.active = false;
+            this.player.score += 50;
+            this.player.streak++;
+            this.addPopup('50 DECLINED', invite.x + invite.width / 2, invite.y);
           }
         }
       }
@@ -578,6 +608,8 @@ export class Game {
 
     renderHud(ctx, this.player, this.gitContext ? this.gitFiles : null);
 
+    if (this.showInfo) this.renderInfoOverlay(ctx);
+
     if (this.bossTitle > 0) {
       this.renderBossTitle(ctx);
     }
@@ -593,35 +625,30 @@ export class Game {
     ctx.fillStyle = 'rgba(15, 15, 35, 0.8)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    ctx.fillStyle = '#2ecc71';
-    ctx.font = '16px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('GIT COMMANDOS', CANVAS_WIDTH / 2, 80);
-
-    ctx.fillStyle = '#ecf0f1';
-    ctx.font = '7px monospace';
-    ctx.fillText('Ship your deliverable', CANVAS_WIDTH / 2, 105);
-    ctx.fillText('Survive the tech industry', CANVAS_WIDTH / 2, 118);
+    // Logo — 1536x1024 source, rendered at 312x208 centred
+    const logoW = 312;
+    const logoH = 208;
+    ctx.drawImage(logoImg, (CANVAS_WIDTH - logoW) / 2, 8, logoW, logoH);
 
     // Alternate left/right to simulate walking
     const walkCol = Math.floor(Date.now() / 400) % 2 === 0 ? 1 : 2;
-    drawChar(ctx, playersTilemap, walkCol, 0, CANVAS_WIDTH / 2 - 12, 140);
+    drawChar(ctx, playersTilemap, walkCol, 0, CANVAS_WIDTH / 2 - 12, 228);
 
     ctx.fillStyle = '#bdc3c7';
     ctx.font = '6px monospace';
-    ctx.fillText('Arrow keys / WASD - Move', CANVAS_WIDTH / 2, 195);
-    ctx.fillText('Z / Space - Shoot', CANVAS_WIDTH / 2, 208);
-    ctx.fillText('C - git revert (clear)', CANVAS_WIDTH / 2, 221);
+    ctx.fillText('Arrow keys / WASD - Move', CANVAS_WIDTH / 2, 272);
+    ctx.fillText('Z / Space - Shoot', CANVAS_WIDTH / 2, 285);
+    ctx.fillText('C - git revert (clear)', CANVAS_WIDTH / 2, 298);
 
     if (Math.floor(Date.now() / 500) % 2 === 0) {
       ctx.fillStyle = '#f5a623';
       ctx.font = '8px monospace';
-      ctx.fillText('Press Z or ENTER to start', CANVAS_WIDTH / 2, 300);
+      ctx.fillText('Press Z or ENTER to start', CANVAS_WIDTH / 2, 345);
     }
 
     ctx.fillStyle = '#533483';
     ctx.font = '6px monospace';
-    ctx.fillText('$ git push origin main --force', CANVAS_WIDTH / 2, 360);
+    ctx.fillText('$ git push origin main --force', CANVAS_WIDTH / 2, 372);
   }
 
   private renderGameOver(ctx: CanvasRenderingContext2D): void {
@@ -851,9 +878,92 @@ export class Game {
     }
   }
 
+  private renderInfoOverlay(ctx: CanvasRenderingContext2D): void {
+    const pad = 16;
+    const w = CANVAS_WIDTH - pad * 2;
+    const h = 220;
+    const x = pad;
+    const y = (CANVAS_HEIGHT - h) / 2;
+
+    ctx.fillStyle = 'rgba(10, 10, 30, 0.92)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#2ecc71';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#2ecc71';
+    ctx.font = 'bold 9px monospace';
+    ctx.fillText('CONTROLS', CANVAS_WIDTH / 2, y + 14);
+
+    const lines: [string, string][] = [
+      ['Move',        'Arrow keys / WASD'],
+      ['Shoot up',    'Z / Space'],
+      ['Shoot ←',     'Q'],
+      ['Shoot →',     'E'],
+      ['Git revert',  'C  (clears screen, recovers file)'],
+      ['', ''],
+      ['Avoid zones', 'Red areas — slows you down'],
+      ['Rush zones',  'Green areas — bonus + heal'],
+      ['Pickup HP',   'Recovers a lost file'],
+    ];
+
+    ctx.font = '7px monospace';
+    const col1 = x + 10;
+    const col2 = x + 90;
+    let ly = y + 30;
+    for (const [label, desc] of lines) {
+      if (!label) { ly += 4; continue; }
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#f7dc6f';
+      ctx.fillText(label, col1, ly);
+      ctx.fillStyle = '#ecf0f1';
+      ctx.fillText(desc, col2, ly);
+      ly += 12;
+    }
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#7f8c8d';
+    ctx.font = '6px monospace';
+    ctx.fillText('[I] close', CANVAS_WIDTH / 2, y + h - 8);
+  }
+
+  private spawnOutlookBoss(): void {
+    const x = 40 + Math.random() * (CANVAS_WIDTH - 80);
+    this.enemies.push(new OutlookSwarm(x, -20));
+    this.outlookBossSpawned = true;
+    this.bossName = 'OUTLOOK INVITES';
+    this.bossSubtitle = 'Shoot them down!';
+    this.bossColor = '#e94560';
+    this.bossTitle = 2.5;
+    this.shake(0.3, 6);
+    playSound('explosion', 0.4);
+  }
+
+  private spawnAiBroBoss(): void {
+    this.enemies.push(new AiBroStampede(-30));
+    this.aiBroSpawned = true;
+    this.bossName = 'AI BRO STAMPEDE!';
+    this.bossSubtitle = 'HIDE!';
+    this.bossColor = '#3498db';
+    this.bossTitle = 2.5;
+    this.shake(0.5, 8);
+    playSound('explosion', 0.5);
+  }
+
   private spawnWave(): void {
     // Track whether an outlook boss is alive
     this.outlookBossActive = this.enemies.some(e => e instanceof OutlookSwarm);
+
+    // Guaranteed boss spawns — OutlookSwarm at 20s, AiBroStampede at 50s
+    if (!this.outlookBossSpawned && !this.outlookBossActive && this.gameTime >= 20) {
+      this.spawnOutlookBoss();
+      return;
+    }
+    if (!this.aiBroSpawned && !this.enemies.some(e => e instanceof AiBroStampede) && this.gameTime >= 50) {
+      this.spawnAiBroBoss();
+      return;
+    }
 
     // While outlook boss is active, reduce spawns significantly
     if (this.outlookBossActive && Math.random() < 0.7) return;
@@ -895,24 +1005,9 @@ export class Game {
         }
       }
     } else if (!this.outlookBossActive && waveType > 0.92 && waveType < 0.96) {
-      // Outlook organizer mini-boss — rare, only one at a time
-      const x = 40 + Math.random() * (CANVAS_WIDTH - 80);
-      this.enemies.push(new OutlookSwarm(x, -20));
-      this.bossName = 'OUTLOOK INVITES';
-      this.bossSubtitle = 'Shoot them down!';
-      this.bossColor = '#e94560';
-      this.bossTitle = 2.5;
-      this.shake(0.3, 6);
-      playSound('explosion', 0.4);
+      this.spawnOutlookBoss();
     } else if (waveType >= 0.98 && !this.enemies.some(e => e instanceof AiBroStampede)) {
-      // AI Bro Stampede
-      this.enemies.push(new AiBroStampede(-30));
-      this.bossName = 'AI BRO STAMPEDE!';
-      this.bossSubtitle = 'HIDE!';
-      this.bossColor = '#3498db';
-      this.bossTitle = 2.5;
-      this.shake(0.5, 8);
-      playSound('explosion', 0.5);
+      this.spawnAiBroBoss();
     } else {
       // Recruiters from sides — on mountains
       const fromLeft = Math.random() < 0.5;
@@ -1070,56 +1165,61 @@ export class Game {
 
     const cx = CANVAS_WIDTH / 2;
 
+    // Logo
+    const logoW = 180;
+    const logoH = Math.round(logoW * 1024 / 1536);
+    ctx.drawImage(logoImg, (CANVAS_WIDTH - logoW) / 2, 6, logoW, logoH);
+
+    let y = logoH + 16;
+
     ctx.fillStyle = '#2ecc71';
     ctx.font = '10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('$ git commit', cx, 50);
+    ctx.fillText('$ git commit', cx, y); y += 18;
 
     if (this.gitContext) {
       const msg = this.gitContext.payload.commitMessage;
       ctx.fillStyle = '#f7dc6f';
       ctx.font = '8px monospace';
-      ctx.fillText(`-m "${msg}"`, cx, 70);
+      ctx.fillText(`-m "${msg}"`, cx, y); y += 16;
 
       ctx.fillStyle = '#ecf0f1';
       ctx.font = '7px monospace';
-      ctx.fillText(`${this.gitFiles.length} file(s) staged = ${this.player.maxHp} HP`, cx, 95);
+      ctx.fillText(`${this.gitFiles.length} file(s) staged = ${this.player.maxHp} HP`, cx, y); y += 14;
 
-      // File list
-      const startY = 115;
-      const maxShow = Math.min(this.gitFiles.length, 10);
+      const maxShow = Math.min(this.gitFiles.length, 6);
       for (let i = 0; i < maxShow; i++) {
-        const f = this.gitFiles[i];
         ctx.fillStyle = '#2ecc71';
-        ctx.fillText(`+ ${f.name}`, cx, startY + i * 12);
+        ctx.fillText(`+ ${this.gitFiles[i].name}`, cx, y); y += 11;
       }
       if (this.gitFiles.length > maxShow) {
         ctx.fillStyle = '#7f8c8d';
-        ctx.fillText(`... and ${this.gitFiles.length - maxShow} more`, cx, startY + maxShow * 12);
+        ctx.fillText(`... and ${this.gitFiles.length - maxShow} more`, cx, y); y += 11;
       }
 
-      // Game length info
+      y += 6;
       const linesAdded = this.gitContext.payload.linesAdded;
-      const infoY = startY + Math.min(this.gitFiles.length, 11) * 12 + 10;
-      ctx.fillStyle = '#bdc3c7';
-      ctx.font = '7px monospace';
-      const estSeconds = Math.round(this.gameRows * 0.55);
+      const estSeconds = Math.round((this.gameRows - 21) * 16 / 18);
       const estMin = Math.floor(estSeconds / 60);
       const estSec = estSeconds % 60;
       const estLabel = estMin > 0 ? `~${estMin}m ${estSec}s` : `~${estSec}s`;
-      ctx.fillText(`${linesAdded} lines + ${this.gitFiles.length} files \u2192 ${this.gameRows} rows (${estLabel})`, cx, infoY);
-
-      const diffLabel = this.gitContext.difficulty === 'extreme' ? 'EXTREME (files DELETED on death!)' : 'BASIC (files unstaged on death)';
-      ctx.fillStyle = this.gitContext.difficulty === 'extreme' ? '#e94560' : '#3498db';
+      ctx.fillStyle = '#bdc3c7';
       ctx.font = '7px monospace';
-      ctx.fillText(diffLabel, cx, infoY + 15);
+      ctx.fillText(`${linesAdded} lines + ${this.gitFiles.length} files \u2192 ${estLabel}`, cx, y); y += 13;
+
+      const diffLabel = this.gitContext.difficulty === 'extreme' ? 'EXTREME \u2014 files DELETED on death!' : 'BASIC \u2014 files unstaged on death';
+      ctx.fillStyle = this.gitContext.difficulty === 'extreme' ? '#e94560' : '#3498db';
+      ctx.fillText(diffLabel, cx, y);
     }
 
     if (Math.floor(Date.now() / 500) % 2 === 0) {
       ctx.fillStyle = '#f5a623';
       ctx.font = '8px monospace';
-      ctx.fillText('Press Z or ENTER to start', cx, CANVAS_HEIGHT - 40);
+      ctx.fillText('Press any key to start', cx, CANVAS_HEIGHT - 30);
     }
+    ctx.fillStyle = '#7f8c8d';
+    ctx.font = '6px monospace';
+    ctx.fillText('[I] controls', cx, CANVAS_HEIGHT - 14);
   }
 
   private renderGitWin(ctx: CanvasRenderingContext2D): void {
@@ -1232,6 +1332,8 @@ export class Game {
     this.gameTime = 0;
     this.rushHealTimer = 0;
     this.announcements = new AnnouncementSystem();
+    this.outlookBossSpawned = false;
+    this.aiBroSpawned = false;
 
     // Restore git HP if in git mode
     if (this.gitContext) {

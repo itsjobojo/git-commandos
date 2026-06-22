@@ -1,7 +1,7 @@
 export const TILE_SIZE = 16;
 export const CANVAS_WIDTH = TILE_SIZE * 24; // 384
 export const CANVAS_HEIGHT = TILE_SIZE * 24; // 384
-export const SCALE = 2;
+export const SCALE = 3;
 export const TICK_RATE = 1 / 60;
 export const PLAYER_SPEED = 80;
 export const PLAYER_SIZE = 24; // Kenney sprites are 24x24
