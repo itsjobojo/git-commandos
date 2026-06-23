@@ -80,12 +80,13 @@ function mulberry32(seed: number) {
   };
 }
 
-/** Door portal: door at building bottom, two holes on building body, outside exit on road */
+/** Door portal: enter the door at the mountain base, land on the body, walk to the
+ *  exit hole on the body, then drop back to the field road tile. */
 export interface DoorPortal {
-  doorRow: number; doorCol: number;
-  hole1Row: number; hole1Col: number;   // entry hole — bottom of building body
-  hole2Row: number; hole2Col: number;   // exit hole — top of building body (or prev building)
-  outsideRow: number; outsideCol: number; // road position where player exits
+  doorRow: number; doorCol: number;     // entry door at the base (road-facing edge)
+  entryRow: number; entryCol: number;   // where the player lands on the body
+  exitRow: number; exitCol: number;     // exit hole on the body (near the top)
+  fieldRow: number; fieldCol: number;   // road tile to drop to when exiting
 }
 
 function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay: (Tile | null)[][]; solid: boolean[][]; doorPortals: DoorPortal[] } {
@@ -155,26 +156,26 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
         }
       }
       placeBuilding(grid, y, 0, leftWidth, extraBody, leftType);
-      // Door at bottom — press up to enter building, traverse body, exit at hole2
-      if (leftHasBridge && rand() < 0.8) {
-        const leftChunkH = leftType === 'purple' ? 5 : 3;
-        const doorRow = y + leftChunkH + extraBody - 1; // last row of building
-        const doorCol = Math.floor(leftWidth / 2); // centered
-        // Hole 1: entry, near bottom of building body
-        const hole1Row = leftType === 'purple' ? (y + 2 + extraBody) : (y + 1 + extraBody);
-        const hole1Col = doorCol;
-        // Hole 2: on previous building near its bottom body row
-        const hole2Row = prevLeftBodyEnd - 1;
-        const hole2Col = doorCol;
-        // Outside exit: on road next to hole2's row
-        const outsideRow = hole2Row;
-        const outsideCol = leftWidth + 1;
-        if (doorRow >= 0 && doorRow < totalRows && doorCol < COLS
-            && hole1Row < totalRows && hole2Row >= 0 && hole2Row < totalRows
-            && outsideCol < COLS) {
-          grid[doorRow][doorCol] = [...DOOR_TILE];
-          if (doorRow + 1 < totalRows) grid[doorRow + 1][doorCol] = [...SAND];
-          doorPortals.push({ doorRow, doorCol, hole1Row, hole1Col, hole2Row, hole2Col, outsideRow, outsideCol });
+      // ~1 in 3 left buildings get a door: enter at the base, land on the body,
+      // walk to the exit hole near the top, drop back to the field.
+      if (rand() < 0.34) {
+        const doorRow = y + (leftType === 'purple' ? 5 : 3) + extraBody - 1; // bottom row
+        const col = leftWidth - 1;                                // road-facing edge col
+        const entryRow = (leftType === 'purple' ? y + 2 : y + 1) + extraBody; // lowest body row
+        const exitRow = y + 1;                                    // top body row
+        const fieldCol = leftWidth;                               // road tile beside mountain
+        if (doorRow >= 0 && doorRow < totalRows && col >= 0
+            && entryRow < totalRows && exitRow < totalRows && fieldCol < COLS
+            && isBuildingBodyTile(grid[entryRow][col]) && isBuildingBodyTile(grid[exitRow][col])
+            && !isSolidTile(grid[exitRow][fieldCol])) {
+          grid[doorRow][col] = [...DOOR_TILE];
+          if (doorRow + 1 < totalRows) grid[doorRow + 1][col] = [...SAND];
+          doorPortals.push({
+            doorRow, doorCol: col,
+            entryRow, entryCol: col,
+            exitRow, exitCol: col,
+            fieldRow: exitRow, fieldCol,
+          });
         }
       }
       // 2nd tier: smaller building stacked on top (~40% chance, needs width >= 5)
@@ -210,26 +211,26 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
         }
       }
       placeBuilding(grid, y, rightStart, rightWidth, extraBody, rightType);
-      // Door at bottom — press up to enter building, traverse body, exit at hole2
-      if (rightHasBridge && rand() < 0.8) {
-        const rightChunkH = rightType === 'purple' ? 5 : 3;
-        const doorRow = y + rightChunkH + extraBody - 1;
-        const doorCol = rightStart + Math.floor(rightWidth / 2);
-        // Hole 1: entry, near bottom of building body
-        const hole1Row = rightType === 'purple' ? (y + 2 + extraBody) : (y + 1 + extraBody);
-        const hole1Col = doorCol;
-        // Hole 2: on previous building near its bottom body row
-        const hole2Row = prevRightBodyEnd - 1;
-        const hole2Col = doorCol;
-        // Outside exit: on road next to hole2's row
-        const outsideRow = hole2Row;
-        const outsideCol = rightStart - 1;
-        if (doorRow >= 0 && doorRow < totalRows && doorCol < COLS
-            && hole1Row < totalRows && hole2Row >= 0 && hole2Row < totalRows
-            && outsideCol >= 0) {
-          grid[doorRow][doorCol] = [...DOOR_TILE];
-          if (doorRow + 1 < totalRows) grid[doorRow + 1][doorCol] = [...SAND];
-          doorPortals.push({ doorRow, doorCol, hole1Row, hole1Col, hole2Row, hole2Col, outsideRow, outsideCol });
+      // ~1 in 3 right buildings get a door: enter at the base, land on the body,
+      // walk to the exit hole near the top, drop back to the field.
+      if (rand() < 0.34) {
+        const doorRow = y + (rightType === 'purple' ? 5 : 3) + extraBody - 1; // bottom row
+        const col = rightStart;                                   // road-facing edge col
+        const entryRow = (rightType === 'purple' ? y + 2 : y + 1) + extraBody; // lowest body row
+        const exitRow = y + 1;                                    // top body row
+        const fieldCol = rightStart - 1;                          // road tile beside mountain
+        if (doorRow >= 0 && doorRow < totalRows && col < COLS
+            && entryRow < totalRows && exitRow < totalRows && fieldCol >= 0
+            && isBuildingBodyTile(grid[entryRow][col]) && isBuildingBodyTile(grid[exitRow][col])
+            && !isSolidTile(grid[exitRow][fieldCol])) {
+          grid[doorRow][col] = [...DOOR_TILE];
+          if (doorRow + 1 < totalRows) grid[doorRow + 1][col] = [...SAND];
+          doorPortals.push({
+            doorRow, doorCol: col,
+            entryRow, entryCol: col,
+            exitRow, exitCol: col,
+            fieldRow: exitRow, fieldCol,
+          });
         }
       }
       // 2nd tier on right
@@ -480,21 +481,6 @@ function isBuildingBodyTile(t: Tile): boolean {
   return false;
 }
 
-// Interior tiles — roof + body + bridge + door (excludes base/bottom)
-// Used for player inside-building traversal
-function isBuildingInteriorTile(t: Tile): boolean {
-  // Purple roof + body: col 0-2, row 0-2
-  if (t[0] >= 0 && t[0] <= 2 && t[1] >= 0 && t[1] <= 2) return true;
-  // Green roof + body: col 5-7, row 0-1
-  if (t[0] >= 5 && t[0] <= 7 && t[1] >= 0 && t[1] <= 1) return true;
-  // Bridge tiles
-  if (t[0] === BRIDGE_PURPLE[0] && t[1] === BRIDGE_PURPLE[1]) return true;
-  if (t[0] === BRIDGE_GREEN[0] && t[1] === BRIDGE_GREEN[1]) return true;
-  // Door tile
-  if (t[0] === DOOR_TILE[0] && t[1] === DOOR_TILE[1]) return true;
-  return false;
-}
-
 /** Get the tile at a screen position */
 function getTileAt(screenX: number, screenY: number, scrollY: number): Tile | null {
   const totalHeight = WORLD_ROWS * TILE_SIZE;
@@ -519,45 +505,19 @@ export function isBuildingBodyAt(screenX: number, screenY: number, scrollY: numb
   return isBuildingBodyTile(tile);
 }
 
-/** Check if a screen pixel is on an interior tile (roof+body+bridge — excludes base/bottom) */
-export function isBuildingInteriorAt(screenX: number, screenY: number, scrollY: number): boolean {
-  const tile = getTileAt(screenX, screenY, scrollY);
-  if (!tile) return false;
-  return isBuildingInteriorTile(tile);
-}
-
-/** Check if the player is standing at/near a door; if so return the hole1 screen coords.
+/** Check if the player is standing at/near a door; if so return that DoorPortal.
  *  Called when the player presses UP. */
 export function checkDoorInteraction(
   screenX: number, screenY: number, w: number, h: number, scrollY: number
-): { screenX: number; screenY: number } | null {
+): DoorPortal | null {
   const playerWorldRow = screenToWorldRow(screenY + h / 2, scrollY);
   const playerCol = Math.floor((screenX + w / 2) / TILE_SIZE);
 
+  // The door faces the road and its tile is solid, so the player stands adjacent
+  // on the road. Accept a small proximity box around the door tile.
   for (const p of WORLD_DOOR_PORTALS) {
-    if (p.doorCol === playerCol && (p.doorRow === playerWorldRow - 1 || p.doorRow === playerWorldRow)) {
-      return {
-        screenX: p.hole1Col * TILE_SIZE,
-        screenY: worldRowToScreenY(p.hole1Row, scrollY),
-      };
-    }
-  }
-  return null;
-}
-
-/** Check if the player reached hole 2; if so return the outside exit screen coords. */
-export function checkHole2Exit(
-  screenX: number, screenY: number, w: number, h: number, scrollY: number
-): { screenX: number; screenY: number } | null {
-  const playerWorldRow = screenToWorldRow(screenY + h / 2, scrollY);
-  const playerCol = Math.floor((screenX + w / 2) / TILE_SIZE);
-
-  for (const p of WORLD_DOOR_PORTALS) {
-    if (p.hole2Col === playerCol && p.hole2Row === playerWorldRow) {
-      return {
-        screenX: p.outsideCol * TILE_SIZE,
-        screenY: worldRowToScreenY(p.outsideRow, scrollY),
-      };
+    if (Math.abs(p.doorCol - playerCol) <= 1 && Math.abs(p.doorRow - playerWorldRow) <= 1) {
+      return p;
     }
   }
   return null;
@@ -608,7 +568,7 @@ export function renderWorld(ctx: CanvasRenderingContext2D, scrollY: number): voi
       }
     }
 
-    // Draw black holes at portal hole1 and hole2 positions
+    // Draw the exit hole (top). The entrance is the DOOR tile, drawn as a normal tile.
     for (const p of WORLD_DOOR_PORTALS) {
       const drawHole = (holeRow: number, holeCol: number) => {
         if (holeRow !== worldRow) return;
@@ -629,8 +589,7 @@ export function renderWorld(ctx: CanvasRenderingContext2D, scrollY: number): voi
         ctx.arc(bx, by, radius * 0.7, 0, Math.PI * 2);
         ctx.stroke();
       };
-      drawHole(p.hole1Row, p.hole1Col);
-      drawHole(p.hole2Row, p.hole2Col);
+      drawHole(p.exitRow, p.exitCol);
     }
   }
 }

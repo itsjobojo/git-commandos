@@ -7,7 +7,7 @@ import {
   PLAYER_SPEED,
   PLAYER_SIZE,
 } from '../constants';
-import { drawChar, playersTilemap, dirCol, knifeSprite } from '../core/assets';
+import { soldierWeaponImg, soldierStandImg, drawSoldier, knifeSprite } from '../core/assets';
 import { WeaponType, WEAPONS } from '../weapons';
 
 export class Player extends Entity {
@@ -22,9 +22,10 @@ export class Player extends Entity {
   weapon: WeaponType = 'pistol';
   meleeCooldown = 0;
   meleeTimer = 0;
-  insideBuilding = false;
+  onMountain = false;
 
-  facing: number = 3; // col index: 0=down, 1=left, 2=right, 3=up
+  facing: number = 3; // 0=down, 1=left, 2=right, 3=up — kept for melee direction
+  angle: number = -Math.PI / 2; // visual rotation; source faces RIGHT, -PI/2 = up
   private walkTimer = 0;
   private walking = false;
 
@@ -45,7 +46,12 @@ export class Player extends Entity {
     this.walking = this.vx !== 0 || this.vy !== 0;
     if (this.walking) {
       this.walkTimer += dt * 8;
-      this.facing = dirCol(this.vx, this.vy);
+      // Only tilt left/right — vertical movement keeps sprite facing up
+      this.angle = Math.atan2(this.vy, this.vx);
+      // 4-dir facing for melee box
+      const ax = Math.abs(this.vx), ay = Math.abs(this.vy);
+      if (ay >= ax) this.facing = this.vy < 0 ? 3 : 0;
+      else this.facing = this.vx < 0 ? 1 : 2;
     }
 
     this.x += this.vx * dt;
@@ -93,8 +99,10 @@ export class Player extends Entity {
     }
 
     const bullets: Projectile[] = [];
-    const cx = this.x + this.width / 2;
-    const cy = this.y - 4;
+    // Spawn from the muzzle: player center pushed out along the firing direction
+    const muzzle = this.width / 2 + 4;
+    const cx = this.x + this.width / 2 + Math.cos(baseAngle) * muzzle;
+    const cy = this.y + this.height / 2 + Math.sin(baseAngle) * muzzle;
 
     for (let i = 0; i < def.spread; i++) {
       const bullet = new Projectile();
@@ -159,11 +167,11 @@ export class Player extends Entity {
       return;
     }
 
-    const rx = Math.round(this.x);
-    const ry = Math.round(this.y);
-    const walkRow = this.walking && Math.floor(this.walkTimer) % 2 === 1 ? 1 : 0;
-
-    drawChar(ctx, playersTilemap, this.facing, walkRow, rx, ry);
+    const cx = Math.round(this.x + this.width / 2);
+    const cy = Math.round(this.y + this.height / 2);
+    const weaponImg = soldierWeaponImg[this.weapon];
+    const img = this.walking && Math.floor(this.walkTimer) % 2 === 1 ? soldierStandImg : weaponImg;
+    drawSoldier(ctx, img, cx, cy, this.angle);
 
     if (this.meleeTimer > 0) {
       this.renderMelee(ctx);

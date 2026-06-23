@@ -13,6 +13,7 @@
   "scripts": {
     "gcmds": "node cli/index.mjs",
     "dev": "vite",
+    "tsc": "tsc --noEmit && vite build",
     "build": "vite build",
     "prepublishOnly": "vite build",
     "test": "echo \"Error: no test specified\" && exit 1",

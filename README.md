@@ -1,17 +1,20 @@
-<p align="center">
+<center>
+
   <img src="public/images/logo.png" alt="Git Commandos" width="480" />
-</p>
 
-<p align="center">
-  <strong>Git, but you have to earn it.</strong><br>
-  A 2D action game CLI that gates real git operations behind gameplay.
-</p>
+  <p>
+    <strong>Every commit is an extraction mission.</strong>
+    <br>
+    A chaotic 2D action-game CLI where real git commands only run if you survive.
+  </p>
 
----
+</center>
 
 ## What is this?
 
-Git Commandos wraps your git workflow in a top-down shooter. Want to commit? Survive the end. Push to remote? You have to stay alive first. Every staged file is a life — lose them and they get unstaged. In **extreme mode**, they get actually get deleted.
+Your staged files become your lives. Take a hit, lose a life. Run out of lives, and those files are unstaged instead of committed.
+
+In **extreme mode**, the stakes are worse: lost files are deleted from disk.
 
 ## Install
 

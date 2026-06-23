@@ -8,7 +8,8 @@ const AI_BRO_QUOTES = [
   'GPT-7 is insane',
   'Claude is my cofounder',
   'Gemini Pro solves everything',
-  'Kimi 2.5 destroys benchmarks',
+  'Fable 5 centers my divs',
+  'Kimi 2.7 destroys benchmarks',
   'we are so back',
   'the singularity is next quarter',
   'this changes everything',
@@ -24,7 +25,7 @@ const AI_BRO_QUOTES = [
   // Hot takes
   'software engineers are done',
   'why would you learn to code?',
-  'o3 passed the bar exam',
+  'GPT 5.6 passed the bar exam',
   'hallucinations are a feature',
   'context window is all you need',
   'open weights won',
@@ -36,7 +37,7 @@ const AI_BRO_QUOTES = [
   'my AI girlfriend is sentient',
   'pivoting to AI',
   "it's an AI-first company",
-  'RAG solves everything',
+  'sniff my RAG pipeline',
 ];
 
 interface BroUnit {
