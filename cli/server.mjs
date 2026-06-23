@@ -36,7 +36,12 @@ export function launchGame(config) {
       try {
         const data = readFileSync(fullPath);
         const ext = extname(fullPath);
-        res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+        res.writeHead(200, {
+          'Content-Type': MIME[ext] || 'application/octet-stream',
+          // Always serve fresh — prevents the browser from caching a stale
+          // index.html that points to an old (renamed) JS bundle.
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        });
         res.end(data);
       } catch {
         res.writeHead(404);

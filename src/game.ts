@@ -15,10 +15,10 @@ import { Particle } from './entities/particle';
 import { aabb } from './core/collision';
 import { renderHud } from './systems/hud';
 import { playSound, playMusic } from './core/sound';
-import { drawChar, playersTilemap, logoImg } from './core/assets';
+import { soldierGunImg, soldierStandImg, drawSoldier, logoImg } from './core/assets';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
 import { GameState } from './types';
-import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt, isBuildingInteriorAt, checkDoorInteraction, checkHole2Exit, initWorld } from './world';
+import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt, checkDoorInteraction, initWorld, type DoorPortal } from './world';
 import { AnnouncementSystem } from './systems/announcements';
 import { WeaponType, WEAPONS } from './weapons';
 import { GitContext, GitFile } from './git-context';
@@ -49,6 +49,8 @@ export class Game {
   private deathTimer = 0;
   private deathX = 0;
   private deathY = 0;
+  private deathAngle = -Math.PI / 2;
+  private activeMountain: DoorPortal | null = null;
 
   private gameTime = 0;
   private rushHealTimer = 0;
@@ -97,6 +99,27 @@ export class Game {
     const maxHp = Math.min(fileCount, 8);
     this.player.maxHp = maxHp;
     this.player.hp = maxHp;
+  }
+
+  /** Leave the mountain: drop back DOWN to the ground — the road beside the
+   *  mountain base (where the door is), not up where the exit hole sits. */
+  private exitMountain(): void {
+    const p = this.player;
+    const m = this.activeMountain;
+    p.onMountain = false;
+    this.activeMountain = null;
+    if (m) {
+      p.x = m.fieldCol * 16 + 8 - p.width / 2;
+      // Land at the mountain base (door row) — ground level, on the road.
+      let gy = worldRowToScreenY(m.doorRow, this.camera.y);
+      // If the base scrolled off-screen, drop to the bottom of the field.
+      if (gy < 16 || gy > CANVAS_HEIGHT - 16) gy = CANVAS_HEIGHT - p.height - 24;
+      p.y = Math.max(8, Math.min(CANVAS_HEIGHT - p.height - 8, gy));
+    }
+    // Nudge down out of any solid tile we may have landed in.
+    for (let i = 0; i < 32 && collidesWithWorld(p.x, p.y, p.width, p.height, this.camera.y); i++) {
+      p.y += 1;
+    }
   }
 
   update(dt: number): void {
@@ -206,13 +229,13 @@ export class Game {
       this.rushHealTimer = 0;
     }
 
-    // Shooting — Q diagonal-left, E diagonal-right, Z/Space straight up
+    // Shooting — fire in the direction the soldier faces; Q/E veer ±45°
     const wantFire = this.input.fire || this.input.fireLeft || this.input.fireRight;
     if (wantFire && this.player.canFire()) {
       if (this.player.hasAmmo()) {
-        let angle = -Math.PI / 2; // straight up
-        if (this.input.fireLeft) angle = -Math.PI * 3 / 4; // up-left
-        if (this.input.fireRight) angle = -Math.PI / 4;     // up-right
+        let angle = this.player.angle; // facing direction
+        if (this.input.fireLeft) angle -= Math.PI / 4;
+        if (this.input.fireRight) angle += Math.PI / 4;
         this.playerBullets.push(...this.player.fire(angle));
         playSound('shoot', 0.15);
       } else if (this.player.canMelee()) {
@@ -279,22 +302,31 @@ export class Game {
     const prevY = p.y;
     p.update(dt);
 
-    if (p.insideBuilding) {
-      // Inside building: constrain to interior tiles (roof+body+bridge, not base/bottom)
-      const cx = p.x + p.width / 2;
-      const cy = p.y + p.height / 2;
-      if (!isBuildingInteriorAt(cx, cy, this.camera.y)) {
+    const cx = () => p.x + p.width / 2;
+    const cy = () => p.y + p.height / 2;
+
+    if (p.onMountain) {
+      // On the mountain: the body is walkable; constrain movement to body tiles.
+      if (!isBuildingBodyAt(cx(), cy(), this.camera.y)) {
         p.x = prevX;
         p.y = prevY;
       }
-      // Don't scroll camera
+      // Scroll continues; ride with the mountain (same as side-spawned enemies).
+      this.camera.update(dt);
+      p.y += this.camera.y - prevCameraY;
 
-      // Check if player reached hole 2 → teleport outside
-      const exit = checkHole2Exit(p.x, p.y, p.width, p.height, this.camera.y);
-      if (exit) {
-        p.x = exit.screenX;
-        p.y = exit.screenY;
-        p.insideBuilding = false;
+      // Reached the exit hole → drop back to the field.
+      const m = this.activeMountain;
+      if (m) {
+        const hx = m.exitCol * 16;
+        const hy = worldRowToScreenY(m.exitRow, this.camera.y);
+        if (aabb({ x: p.x, y: p.y, w: p.width, h: p.height }, { x: hx, y: hy, w: 16, h: 16 })) {
+          this.exitMountain();
+        }
+      }
+      // Safety: never get trapped — eject if the body ended or we near the bottom.
+      if (p.onMountain && (!isBuildingBodyAt(cx(), cy(), this.camera.y) || p.y + p.height > CANVAS_HEIGHT - 24)) {
+        this.exitMountain();
       }
     } else {
       // Resolve player collision with world — try X and Y separately
@@ -305,7 +337,7 @@ export class Game {
         p.y = prevY;
       }
 
-      // Camera scrolls
+      // Camera always scrolls
       this.camera.update(dt);
 
       // After scroll: check if player is now inside a solid tile (building came from above)
@@ -318,13 +350,15 @@ export class Game {
         }
       }
 
-      // Door interaction: player presses up against a door → teleport to hole 1
+      // Door interaction: press up at a door → enter and land on the mountain body
       if (this.input.up) {
-        const result = checkDoorInteraction(p.x, p.y, p.width, p.height, this.camera.y);
-        if (result) {
-          p.x = result.screenX;
-          p.y = result.screenY;
-          p.insideBuilding = true;
+        const portal = checkDoorInteraction(p.x, p.y, p.width, p.height, this.camera.y);
+        if (portal) {
+          p.onMountain = true;
+          this.activeMountain = portal;
+          p.x = portal.entryCol * 16 + 8 - p.width / 2;
+          p.y = worldRowToScreenY(portal.entryRow, this.camera.y) + 8 - p.height / 2;
+          playSound('select', 0.3);
         }
       }
     }
@@ -344,8 +378,8 @@ export class Game {
       this.sendGitResult('win');
     }
 
-    // If player is pushed off the bottom of the screen — death
-    if (p.y + p.height > CANVAS_HEIGHT) {
+    // If player is pushed off the bottom of the screen — death (safe while on a mountain)
+    if (!p.onMountain && p.y + p.height > CANVAS_HEIGHT) {
       p.hp = 0;
       p.active = false;
     }
@@ -457,22 +491,25 @@ export class Game {
       }
     }
 
-    for (const bullet of this.enemyBullets) {
-      if (!bullet.active) continue;
-      if (aabb(bullet.getBounds(), this.player.getBounds())) {
-        bullet.active = false;
-        this.player.takeDamage(1);
-        this.shake(0.2, 3);
-        playSound('hurt', 0.3);
+    // On the mountain the player is safe — skip all enemy/bullet damage.
+    if (!this.player.onMountain) {
+      for (const bullet of this.enemyBullets) {
+        if (!bullet.active) continue;
+        if (aabb(bullet.getBounds(), this.player.getBounds())) {
+          bullet.active = false;
+          this.player.takeDamage(1);
+          this.shake(0.2, 3);
+          playSound('hurt', 0.3);
+        }
       }
-    }
 
-    for (const enemy of this.enemies) {
-      if (!enemy.active) continue;
-      if (aabb(enemy.getBounds(), this.player.getBounds())) {
-        this.player.takeDamage(1);
-        this.shake(0.3, 4);
-        playSound('hurt', 0.3);
+      for (const enemy of this.enemies) {
+        if (!enemy.active) continue;
+        if (aabb(enemy.getBounds(), this.player.getBounds())) {
+          this.player.takeDamage(1);
+          this.shake(0.3, 4);
+          playSound('hurt', 0.3);
+        }
       }
     }
 
@@ -526,6 +563,7 @@ export class Game {
       this.deathTimer = 2.0;
       this.deathX = this.player.x;
       this.deathY = this.player.y;
+      this.deathAngle = this.player.angle;
       playSound('lose', 0.4);
       // Mark all remaining alive files as dead
       for (const f of this.gitFiles) f.alive = false;
@@ -625,14 +663,16 @@ export class Game {
     ctx.fillStyle = 'rgba(15, 15, 35, 0.8)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Logo — 1536x1024 source, rendered at 312x208 centred
+    // Logo — enable smoothing so the hi-res PNG scales cleanly (global flag is off for sprites)
     const logoW = 312;
     const logoH = 208;
-    ctx.drawImage(logoImg, (CANVAS_WIDTH - logoW) / 2, 8, logoW, logoH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(logoImg, 154, 102, 1228, 820, (CANVAS_WIDTH - logoW) / 2, 8, logoW, logoH);
+    ctx.imageSmoothingEnabled = false;
 
-    // Alternate left/right to simulate walking
-    const walkCol = Math.floor(Date.now() / 400) % 2 === 0 ? 1 : 2;
-    drawChar(ctx, playersTilemap, walkCol, 0, CANVAS_WIDTH / 2 - 12, 228);
+    // Alternate weapon/stand to simulate walking
+    const walkImg = Math.floor(Date.now() / 400) % 2 === 0 ? soldierGunImg : soldierStandImg;
+    drawSoldier(ctx, walkImg, CANVAS_WIDTH / 2, 228, -Math.PI / 2);
 
     ctx.fillStyle = '#bdc3c7';
     ctx.font = '6px monospace';
@@ -665,11 +705,7 @@ export class Game {
     ctx.fillText('Deliverable not shipped', CANVAS_WIDTH / 2, 145);
 
     // Dead character lying down
-    ctx.save();
-    ctx.translate(CANVAS_WIDTH / 2, 175);
-    ctx.rotate(Math.PI / 2);
-    drawChar(ctx, playersTilemap, 0, 0, -12, -12);
-    ctx.restore();
+    drawSoldier(ctx, soldierGunImg, CANVAS_WIDTH / 2, 175, 0);
 
     ctx.fillStyle = '#f7dc6f';
     ctx.font = '8px monospace';
@@ -705,7 +741,9 @@ export class Game {
       const ry = Math.round(this.deathY);
 
       // Tint red
-      drawChar(ctx, playersTilemap, 0, 0, rx, ry);
+      const dcx = rx + this.player.width / 2;
+      const dcy = ry + this.player.height / 2;
+      drawSoldier(ctx, soldierGunImg, dcx, dcy, this.deathAngle);
       ctx.globalCompositeOperation = 'source-atop';
       ctx.fillStyle = `rgba(233, 69, 96, ${0.5 * fade})`;
       ctx.fillRect(rx, ry, this.player.width, this.player.height);
@@ -732,7 +770,7 @@ export class Game {
     ctx.font = '7px monospace';
     ctx.fillText('You survived the tech industry', CANVAS_WIDTH / 2, 130);
 
-    drawChar(ctx, playersTilemap, 2, 1, CANVAS_WIDTH / 2 - 12, 155);
+    drawSoldier(ctx, soldierGunImg, CANVAS_WIDTH / 2, 155, -Math.PI / 2);
 
     ctx.fillStyle = '#f7dc6f';
     ctx.font = '10px monospace';
@@ -1165,10 +1203,12 @@ export class Game {
 
     const cx = CANVAS_WIDTH / 2;
 
-    // Logo
+    // Logo — enable smoothing so the hi-res PNG scales cleanly (global flag is off for sprites)
     const logoW = 180;
-    const logoH = Math.round(logoW * 1024 / 1536);
-    ctx.drawImage(logoImg, (CANVAS_WIDTH - logoW) / 2, 6, logoW, logoH);
+    const logoH = Math.round(logoW * 820 / 1228);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(logoImg, 154, 102, 1228, 820, (CANVAS_WIDTH - logoW) / 2, 6, logoW, logoH);
+    ctx.imageSmoothingEnabled = false;
 
     let y = logoH + 16;
 
@@ -1237,7 +1277,7 @@ export class Game {
     ctx.font = '8px monospace';
     ctx.fillText(`"${this.gitContext!.payload.commitMessage}"`, cx, 85);
 
-    drawChar(ctx, playersTilemap, 2, 1, cx - 12, 100);
+    drawSoldier(ctx, soldierGunImg, cx, 100, -Math.PI / 2);
 
     // File results
     let y = 140;
@@ -1282,12 +1322,8 @@ export class Game {
     ctx.textAlign = 'center';
     ctx.fillText('COMMIT FAILED', cx, 60);
 
-    // Dead character
-    ctx.save();
-    ctx.translate(cx, 90);
-    ctx.rotate(Math.PI / 2);
-    drawChar(ctx, playersTilemap, 0, 0, -12, -12);
-    ctx.restore();
+    // Dead character lying down
+    drawSoldier(ctx, soldierGunImg, cx, 90, 0);
 
     const isExtreme = this.gitContext!.difficulty === 'extreme';
 
@@ -1318,6 +1354,7 @@ export class Game {
 
   private reset(): void {
     this.player = new Player();
+    this.activeMountain = null;
     this.playerBullets = [];
     this.enemyBullets = [];
     this.enemies = [];
