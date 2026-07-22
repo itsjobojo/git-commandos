@@ -56,7 +56,7 @@ export class Input {
   get fireRight(): boolean {
     return this.isDown('KeyE');
   }
-  get blame(): boolean {
+  get melee(): boolean {
     return this.justPressed('KeyX');
   }
   get revert(): boolean {

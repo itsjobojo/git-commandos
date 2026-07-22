@@ -82,7 +82,8 @@ export class Player extends Entity {
   }
 
   hasAmmo(): boolean {
-    return this.ammo > 0;
+    // The pistol is the infinite fallback weapon — always has ammo.
+    return this.weapon === 'pistol' || this.ammo > 0;
   }
 
   /** Fire current weapon — returns array of projectiles.
@@ -90,12 +91,14 @@ export class Player extends Entity {
   fire(baseAngle: number = -Math.PI / 2): Projectile[] {
     const def = WEAPONS[this.weapon];
     this.fireCooldown = def.fireRate;
-    this.ammo--;
 
-    // If ammo depleted, fall back to pistol
-    if (this.ammo <= 0) {
-      this.weapon = 'pistol';
-      this.ammo = 0;
+    // Pistol has infinite ammo; other weapons consume it and revert to pistol when empty.
+    if (this.weapon !== 'pistol') {
+      this.ammo--;
+      if (this.ammo <= 0) {
+        this.weapon = 'pistol';
+        this.ammo = 0;
+      }
     }
 
     const bullets: Projectile[] = [];
@@ -151,8 +154,9 @@ export class Player extends Entity {
     return null;
   }
 
-  takeDamage(amount: number): void {
-    if (this.invincibleTimer > 0) return;
+  /** Apply damage. Returns true if the hit landed, false if ignored (i-frames). */
+  takeDamage(amount: number): boolean {
+    if (this.invincibleTimer > 0) return false;
     this.hp -= amount;
     this.invincibleTimer = 1.0;
     this.streak = 0;
@@ -160,6 +164,7 @@ export class Player extends Entity {
       this.hp = 0;
       this.active = false;
     }
+    return true;
   }
 
   render(ctx: CanvasRenderingContext2D): void {

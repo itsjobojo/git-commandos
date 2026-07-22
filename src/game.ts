@@ -54,6 +54,7 @@ export class Game {
 
   private gameTime = 0;
   private rushHealTimer = 0;
+  private meleeHitEnemies = new Set<Enemy>();
   private announcements = new AnnouncementSystem();
 
   // Guaranteed boss tracking — each spawns at least once per run
@@ -222,6 +223,7 @@ export class Game {
       if (this.rushHealTimer >= 1.5 && this.player.hp < this.player.maxHp) {
         this.rushHealTimer = 0;
         this.player.hp++;
+        this.recoverGitFile();
         this.addPopup('HP+1', this.player.x + this.player.width / 2, this.player.y);
         playSound('coin', 0.2);
       }
@@ -231,17 +233,19 @@ export class Game {
 
     // Shooting — fire in the direction the soldier faces; Q/E veer ±45°
     const wantFire = this.input.fire || this.input.fireLeft || this.input.fireRight;
-    if (wantFire && this.player.canFire()) {
-      if (this.player.hasAmmo()) {
-        let angle = this.player.angle; // facing direction
-        if (this.input.fireLeft) angle -= Math.PI / 4;
-        if (this.input.fireRight) angle += Math.PI / 4;
-        this.playerBullets.push(...this.player.fire(angle));
-        playSound('shoot', 0.15);
-      } else if (this.player.canMelee()) {
-        this.player.melee();
-        playSound('shoot', 0.1);
-      }
+    if (wantFire && this.player.canFire() && this.player.hasAmmo()) {
+      let angle = this.player.angle; // facing direction
+      if (this.input.fireLeft) angle -= Math.PI / 4;
+      if (this.input.fireRight) angle += Math.PI / 4;
+      this.playerBullets.push(...this.player.fire(angle));
+      playSound('shoot', 0.15);
+    }
+
+    // Melee — dedicated key (X), available regardless of ammo
+    if (this.input.melee && this.player.canMelee()) {
+      this.player.melee();
+      this.meleeHitEnemies.clear();
+      playSound('shoot', 0.1);
     }
 
     // Check melee hits
@@ -250,7 +254,9 @@ export class Game {
       if (meleeBox) {
         for (const enemy of this.enemies) {
           if (!enemy.active) continue;
+          if (this.meleeHitEnemies.has(enemy)) continue;
           if (aabb(meleeBox, enemy.getBounds())) {
+            this.meleeHitEnemies.add(enemy);
             enemy.takeDamage(2);
             if (!enemy.active) {
               const pts = enemy.scoreValue * Math.max(1, this.player.streak);
@@ -497,7 +503,7 @@ export class Game {
         if (!bullet.active) continue;
         if (aabb(bullet.getBounds(), this.player.getBounds())) {
           bullet.active = false;
-          this.player.takeDamage(1);
+          if (this.player.takeDamage(1)) this.loseGitFile();
           this.shake(0.2, 3);
           playSound('hurt', 0.3);
         }
@@ -506,7 +512,7 @@ export class Game {
       for (const enemy of this.enemies) {
         if (!enemy.active) continue;
         if (aabb(enemy.getBounds(), this.player.getBounds())) {
-          this.player.takeDamage(1);
+          if (this.player.takeDamage(1)) this.loseGitFile();
           this.shake(0.3, 4);
           playSound('hurt', 0.3);
         }
@@ -939,6 +945,7 @@ export class Game {
       ['Shoot up',    'Z / Space'],
       ['Shoot ←',     'Q'],
       ['Shoot →',     'E'],
+      ['Melee stab',  'X  (close range, any time)'],
       ['Git revert',  'C  (clears screen, recovers file)'],
       ['', ''],
       ['Avoid zones', 'Red areas — slows you down'],
@@ -1150,6 +1157,12 @@ export class Game {
         this.addPopup('GIT STASH!', px, py);
         break;
       case 'ammo': {
+        // Pistol has infinite ammo — an ammo pickup would be wasted, so convert to score.
+        if (this.player.weapon === 'pistol') {
+          this.player.score += 25;
+          this.addPopup('+25', px, py);
+          break;
+        }
         const ammoDef = WEAPONS[this.player.weapon];
         this.player.ammo = Math.min(ammoDef.ammoOnPickup * 2, this.player.ammo + Math.ceil(ammoDef.ammoOnPickup / 2));
         this.addPopup(`AMMO+${Math.ceil(ammoDef.ammoOnPickup / 2)}`, px, py);
@@ -1174,6 +1187,18 @@ export class Game {
   }
 
   // --- Git integration helpers ---
+
+  /** Kill the last currently-alive file (mirrors recoverGitFile). Called on each hit that lands. */
+  private loseGitFile(): void {
+    if (!this.gitContext) return;
+    for (let i = this.gitFiles.length - 1; i >= 0; i--) {
+      if (this.gitFiles[i].alive) {
+        this.gitFiles[i].alive = false;
+        this.addPopup(`LOST: ${this.gitFiles[i].name.split('/').pop()}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+        return;
+      }
+    }
+  }
 
   /** Recover the most recently lost file (used by revert and cherry-pick pickups). */
   private recoverGitFile(): void {
