@@ -10,6 +10,8 @@ export abstract class Enemy extends Entity {
   fireTimer = 0;
   stateTimer = 0;
   flashTimer = 0;
+  /** True when spawned from a building edge (rides the scroll, bounces on body tiles). */
+  sideSpawn = false;
 
   takeDamage(amount: number): void {
     this.hp -= amount;

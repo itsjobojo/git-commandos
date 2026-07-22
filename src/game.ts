@@ -16,9 +16,9 @@ import { aabb } from './core/collision';
 import { renderHud } from './systems/hud';
 import { playSound, playMusic } from './core/sound';
 import { soldierGunImg, soldierStandImg, drawSoldier, logoImg } from './core/assets';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE } from './constants';
 import { GameState } from './types';
-import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, findBuildingEdgeSpans, isBuildingBodyAt, checkDoorInteraction, initWorld, type DoorPortal } from './world';
+import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, SCROLL_ROWS_TO_END, findBuildingEdgeSpans, isBuildingBodyAt, checkDoorInteraction, initWorld, type DoorPortal } from './world';
 import { AnnouncementSystem } from './systems/announcements';
 import { WeaponType, WEAPONS } from './weapons';
 import { GitContext, GitFile } from './git-context';
@@ -84,8 +84,8 @@ export class Game {
       if (this.gitContext.payload.gameRows) {
         this.gameRows = this.gitContext.payload.gameRows;
       } else {
-        this.gameRows = Math.min(1520, Math.max(320,
-          Math.floor(320 + fileCount * 72 + linesAdded * 0.2)
+        this.gameRows = Math.min(480, Math.max(140,
+          Math.floor(140 + fileCount * 24 + linesAdded * 0.08)
         ));
       }
       initWorld(this.gameRows);
@@ -393,7 +393,7 @@ export class Game {
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnWave();
-      const baseInterval = Math.max(1.5, 3.5 - this.gameTime * 0.015);
+      const baseInterval = Math.max(1.5, 3.5 - this.levelProgress() * 2.0);
       this.spawnTimer = baseInterval + Math.random() * 2;
     }
 
@@ -401,7 +401,7 @@ export class Game {
     const cameraScrollThisFrame = this.camera.y - prevCameraY;
 
     for (const enemy of this.enemies) {
-      if ((enemy as any)._sideSpawn) {
+      if (enemy.sideSpawn) {
         // Shift side-spawned enemies with the camera so they stay on their building
         enemy.y += cameraScrollThisFrame;
       }
@@ -411,7 +411,7 @@ export class Game {
       enemy.ai(dt, this.player.x + this.player.width / 2, this.player.y + this.player.height / 2);
       enemy.updateFlash(dt);
 
-      if ((enemy as any)._sideSpawn) {
+      if (enemy.sideSpawn) {
         // Side-spawned enemies bounce back when they leave building body tiles
         const cx = enemy.x + enemy.width / 2;
         const cy = enemy.y + enemy.height / 2;
@@ -428,9 +428,16 @@ export class Game {
       } else {
         // Top-spawned enemies bounce off solid tiles
         if (collidesWithWorld(enemy.x, enemy.y, enemy.width, enemy.height, this.camera.y)) {
-          enemy.x = ex;
-          enemy.y = ey;
-          enemy.vx = -enemy.vx;
+          if (enemy instanceof Recruiter) {
+            // Recruiter drives x from baseX+sin each frame, so shift the centre to
+            // make the restore stick instead of vibrating against the building.
+            enemy.nudge(ex - enemy.x);
+            enemy.y = ey;
+          } else {
+            enemy.x = ex;
+            enemy.y = ey;
+            enemy.vx = -enemy.vx;
+          }
         }
       }
 
@@ -501,7 +508,7 @@ export class Game {
     if (!this.player.onMountain) {
       for (const bullet of this.enemyBullets) {
         if (!bullet.active) continue;
-        if (aabb(bullet.getBounds(), this.player.getBounds())) {
+        if (aabb(bullet.getBounds(), this.player.getHurtBounds())) {
           bullet.active = false;
           if (this.player.takeDamage(1)) this.loseGitFile();
           this.shake(0.2, 3);
@@ -511,7 +518,7 @@ export class Game {
 
       for (const enemy of this.enemies) {
         if (!enemy.active) continue;
-        if (aabb(enemy.getBounds(), this.player.getBounds())) {
+        if (aabb(enemy.getBounds(), this.player.getHurtBounds())) {
           if (this.player.takeDamage(1)) this.loseGitFile();
           this.shake(0.3, 4);
           playSound('hurt', 0.3);
@@ -531,7 +538,7 @@ export class Game {
     // Collision: player vs outlook invites — triggers meeting modal
     for (const invite of this.outlookInvites) {
       if (!invite.active) continue;
-      if (aabb(invite.getBounds(), this.player.getBounds())) {
+      if (aabb(invite.getBounds(), this.player.getHurtBounds())) {
         invite.active = false;
         const [acceptKey, declineKey] = this.pickModalKeys();
         this.meetingModal = { name: invite.meetingName, age: 0, acceptKey, declineKey };
@@ -996,16 +1003,23 @@ export class Game {
     playSound('explosion', 0.5);
   }
 
+  /** Fraction of the level scrolled so far (0 at start, 1 at the finish). */
+  private levelProgress(): number {
+    return Math.min(1, Math.max(0, this.camera.y / (this.gameRows * TILE_SIZE)));
+  }
+
   private spawnWave(): void {
     // Track whether an outlook boss is alive
     this.outlookBossActive = this.enemies.some(e => e instanceof OutlookSwarm);
 
-    // Guaranteed boss spawns — OutlookSwarm at 20s, AiBroStampede at 50s
-    if (!this.outlookBossSpawned && !this.outlookBossActive && this.gameTime >= 20) {
+    const progress = this.levelProgress();
+
+    // Guaranteed boss spawns — trigger on level progress (outlook 15%, ai-bro 45%)
+    if (!this.outlookBossSpawned && !this.outlookBossActive && progress >= 0.15) {
       this.spawnOutlookBoss();
       return;
     }
-    if (!this.aiBroSpawned && !this.enemies.some(e => e instanceof AiBroStampede) && this.gameTime >= 50) {
+    if (!this.aiBroSpawned && !this.enemies.some(e => e instanceof AiBroStampede) && progress >= 0.45) {
       this.spawnAiBroBoss();
       return;
     }
@@ -1013,63 +1027,72 @@ export class Game {
     // While outlook boss is active, reduce spawns significantly
     if (this.outlookBossActive && Math.random() < 0.7) return;
 
-    const waveType = Math.random();
-    const difficultyScale = Math.min(2, 1 + this.gameTime * 0.01);
+    const difficultyScale = 1 + progress * 1.5; // 1 -> 2.5 across the level
 
-    if (waveType < 0.25) {
-      // Recruiters from top
-      const count = Math.floor(1 + Math.random() * difficultyScale);
-      for (let i = 0; i < count; i++) {
-        const x = 20 + Math.random() * (CANVAS_WIDTH - 64);
-        this.enemies.push(new Recruiter(x, -30 - i * 35));
-      }
-    } else if (waveType < 0.45) {
-      // Interns from top
-      const count = Math.floor(1 + Math.random() * 2 * difficultyScale);
-      for (let i = 0; i < count; i++) {
-        const x = Math.random() * (CANVAS_WIDTH - 24);
-        this.enemies.push(new Intern(x, -30 - i * 25));
-      }
-    } else if (waveType < 0.7) {
-      // Side-entry enemies — spawn ON mountain textures
-      const fromLeft = Math.random() < 0.5;
-      const spans = findBuildingEdgeSpans(this.camera.y, fromLeft ? 'left' : 'right');
-      if (spans.length > 0) {
-        const span = spans[Math.floor(Math.random() * spans.length)];
-        if (span.h >= 32) { // need enough room
-          const count = 1 + Math.floor(Math.random() * 2 * difficultyScale);
-          for (let i = 0; i < count; i++) {
-            const x = fromLeft ? 8 : CANVAS_WIDTH - 24;
-            const y = span.y + 8 + Math.random() * (span.h - 32);
-            const enemy = new Intern(x, y);
-            enemy.vx = fromLeft ? (35 + Math.random() * 20) : -(35 + Math.random() * 20);
-            enemy.vy = 8 + Math.random() * 10;
-            (enemy as any)._sideSpawn = true; // mark for constraint
-            this.enemies.push(enemy);
-          }
-        }
-      }
-    } else if (!this.outlookBossActive && waveType > 0.92 && waveType < 0.96) {
-      this.spawnOutlookBoss();
-    } else if (waveType >= 0.98 && !this.enemies.some(e => e instanceof AiBroStampede)) {
-      this.spawnAiBroBoss();
-    } else {
-      // Recruiters from sides — on mountains
-      const fromLeft = Math.random() < 0.5;
-      const spans = findBuildingEdgeSpans(this.camera.y, fromLeft ? 'left' : 'right');
-      if (spans.length > 0) {
-        const span = spans[Math.floor(Math.random() * spans.length)];
-        if (span.h >= 32) {
-          const x = fromLeft ? 8 : CANVAS_WIDTH - 24;
-          const y = span.y + 8 + Math.random() * (span.h - 32);
-          const enemy = new Recruiter(x, y);
-          enemy.vx = fromLeft ? 30 : -30;
-          enemy.vy = 8;
-          (enemy as any)._sideSpawn = true;
-          this.enemies.push(enemy);
-        }
-      }
+    // Weighted spawn table — roll once, walk the cumulative weights.
+    const table: { weight: number; spawn: () => void }[] = [
+      { weight: 25, spawn: () => this.spawnRecruitersTop(difficultyScale) },
+      { weight: 20, spawn: () => this.spawnInternsTop(difficultyScale) },
+      { weight: 25, spawn: () => this.spawnSideInterns(difficultyScale) },
+      { weight: 22, spawn: () => this.spawnSideRecruiters() },
+      { weight: 4,  spawn: () => { if (!this.outlookBossActive) this.spawnOutlookBoss(); } },
+      { weight: 2,  spawn: () => { if (!this.enemies.some(e => e instanceof AiBroStampede)) this.spawnAiBroBoss(); } },
+    ];
+    const total = table.reduce((sum, e) => sum + e.weight, 0);
+    let roll = Math.random() * total;
+    for (const entry of table) {
+      roll -= entry.weight;
+      if (roll < 0) { entry.spawn(); return; }
     }
+  }
+
+  private spawnRecruitersTop(difficultyScale: number): void {
+    const count = Math.floor(1 + Math.random() * difficultyScale);
+    for (let i = 0; i < count; i++) {
+      const x = 20 + Math.random() * (CANVAS_WIDTH - 64);
+      this.enemies.push(new Recruiter(x, -30 - i * 35));
+    }
+  }
+
+  private spawnInternsTop(difficultyScale: number): void {
+    const count = Math.floor(1 + Math.random() * 2 * difficultyScale);
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * (CANVAS_WIDTH - 24);
+      this.enemies.push(new Intern(x, -30 - i * 25));
+    }
+  }
+
+  private spawnSideInterns(difficultyScale: number): void {
+    const fromLeft = Math.random() < 0.5;
+    const spans = findBuildingEdgeSpans(this.camera.y, fromLeft ? 'left' : 'right');
+    if (spans.length === 0) return;
+    const span = spans[Math.floor(Math.random() * spans.length)];
+    if (span.h < 32) return; // need enough room
+    const count = 1 + Math.floor(Math.random() * 2 * difficultyScale);
+    for (let i = 0; i < count; i++) {
+      const x = fromLeft ? 8 : CANVAS_WIDTH - 24;
+      const y = span.y + 8 + Math.random() * (span.h - 32);
+      const enemy = new Intern(x, y);
+      enemy.vx = fromLeft ? (35 + Math.random() * 20) : -(35 + Math.random() * 20);
+      enemy.vy = 8 + Math.random() * 10;
+      enemy.sideSpawn = true; // mark for constraint
+      this.enemies.push(enemy);
+    }
+  }
+
+  private spawnSideRecruiters(): void {
+    const fromLeft = Math.random() < 0.5;
+    const spans = findBuildingEdgeSpans(this.camera.y, fromLeft ? 'left' : 'right');
+    if (spans.length === 0) return;
+    const span = spans[Math.floor(Math.random() * spans.length)];
+    if (span.h < 32) return;
+    const x = fromLeft ? 8 : CANVAS_WIDTH - 24;
+    const y = span.y + 8 + Math.random() * (span.h - 32);
+    const enemy = new Recruiter(x, y);
+    enemy.vx = fromLeft ? 30 : -30;
+    enemy.vy = 8;
+    enemy.sideSpawn = true;
+    this.enemies.push(enemy);
   }
 
   private fireGitRevert(): void {
@@ -1110,10 +1133,11 @@ export class Game {
     if (Math.random() < 0.5) {
       const roll = Math.random();
       if (roll < 0.45) {
-        // Weapon drop — weighted by game time
-        const weapons: WeaponType[] = this.gameTime < 15
+        // Weapon drop — tier gated by level progress
+        const progress = this.levelProgress();
+        const weapons: WeaponType[] = progress < 0.15
           ? ['smg']
-          : this.gameTime < 35
+          : progress < 0.4
             ? ['smg', 'machinegun']
             : ['smg', 'machinegun', 'shotgun'];
         const weapon = weapons[Math.floor(Math.random() * weapons.length)];
@@ -1264,7 +1288,7 @@ export class Game {
 
       y += 6;
       const linesAdded = this.gitContext.payload.linesAdded;
-      const estSeconds = Math.round((this.gameRows - 21) * 16 / 18);
+      const estSeconds = Math.round((this.gameRows - SCROLL_ROWS_TO_END) * TILE_SIZE / this.camera.speed);
       const estMin = Math.floor(estSeconds / 60);
       const estSec = estSeconds % 60;
       const estLabel = estMin > 0 ? `~${estMin}m ${estSec}s` : `~${estSec}s`;

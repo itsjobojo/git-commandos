@@ -5,7 +5,6 @@ export class Projectile extends Entity {
   damage = 1;
   owner: 'player' | 'enemy' = 'player';
   homing = false;
-  hitboxPadding = 2;
 
   spriteCol = 3;
   spriteRow = 2;
