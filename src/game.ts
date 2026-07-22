@@ -54,6 +54,7 @@ export class Game {
 
   private gameTime = 0;
   private rushHealTimer = 0;
+  private meetingSlowTimer = 0;
   private meleeHitEnemies = new Set<Enemy>();
   private announcements = new AnnouncementSystem();
 
@@ -176,10 +177,13 @@ export class Game {
       if (this.meetingModal.age > 0.4) {
         const aKey = this.meetingModal.acceptKey;
         const dKey = this.meetingModal.declineKey;
-        if (this.input.justPressed(aKey) || this.input.isDown(aKey)) {
+        // justPressed only — holding a key when the modal spawns must not auto-answer it.
+        if (this.input.justPressed(aKey)) {
           this.meetingModal = null;
+          this.meetingSlowTimer = 3; // "meeting brain" — slowed for 3s
+          this.addPopup('MEETING...', this.player.x + this.player.width / 2, this.player.y);
           playSound('select');
-        } else if (this.input.justPressed(dKey) || this.input.isDown(dKey)) {
+        } else if (this.input.justPressed(dKey)) {
           this.meetingModal = null;
           this.player.score += 50;
           this.addPopup('+50 DECLINED', this.player.x + this.player.width / 2, this.player.y);
@@ -203,13 +207,20 @@ export class Game {
     this.player.handleInput(this.input);
 
     // Check if player is in an avoid zone — super slow
-    if (this.announcements.isPlayerSlowed(this.player.x, this.player.y, this.player.width, this.player.height)) {
+    if (this.announcements.isPlayerSlowed(this.player.x, this.player.y, this.player.width, this.player.height, this.camera.y)) {
       this.player.vx *= 0.2;
       this.player.vy *= 0.2;
     }
 
+    // "Meeting brain" — accepting a meeting invite slows you for a few seconds
+    if (this.meetingSlowTimer > 0) {
+      this.meetingSlowTimer -= dt;
+      this.player.vx *= 0.5;
+      this.player.vy *= 0.5;
+    }
+
     // Check if player reached a rush zone — bonus!
-    const claimed = this.announcements.checkRushClaim(this.player.x, this.player.y, this.player.width, this.player.height);
+    const claimed = this.announcements.checkRushClaim(this.player.x, this.player.y, this.player.width, this.player.height, this.camera.y);
     if (claimed) {
       this.player.score += 500;
       this.player.ammo = Math.min(99, this.player.ammo + 5);
@@ -218,7 +229,7 @@ export class Game {
     }
 
     // Slowly heal while standing in a green (rush) zone
-    if (this.announcements.isPlayerInRush(this.player.x, this.player.y, this.player.width, this.player.height)) {
+    if (this.announcements.isPlayerInRush(this.player.x, this.player.y, this.player.width, this.player.height, this.camera.y)) {
       this.rushHealTimer += dt;
       if (this.rushHealTimer >= 1.5 && this.player.hp < this.player.maxHp) {
         this.rushHealTimer = 0;
@@ -655,7 +666,7 @@ export class Game {
     ctx.restore();
 
     // Announcement overlay (rendered on top of game, under HUD)
-    this.announcements.render(ctx);
+    this.announcements.render(ctx, this.camera.y);
 
     renderHud(ctx, this.player, this.gitContext ? this.gitFiles : null);
 
@@ -836,8 +847,9 @@ export class Game {
   }
 
   private pickModalKeys(): [string, string] {
-    // Pick two random distinct letter keys, avoiding WASD/movement keys
-    const pool = 'BFGHIJKLMNOPQRTUVXY';
+    // Pick two random distinct letter keys, avoiding movement/action keys
+    // (I toggles info, X is melee, Q/E veer-fire, Z shoot, C revert).
+    const pool = 'BFGHJKLMNOPRTUVY';
     const i = Math.floor(Math.random() * pool.length);
     let j = Math.floor(Math.random() * (pool.length - 1));
     if (j >= i) j++;
@@ -921,11 +933,16 @@ export class Game {
     ctx.fillStyle = '#ffffff';
     ctx.fillText(`Decline [${dLetter}]`, declineX + btnW / 2, btnY + btnH / 2);
 
+    // One-line hint under the buttons
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '7px "Pixelify Sans", sans-serif';
+    ctx.fillText('accepting slows you down', cx, btnY + btnH + 10);
+
     // Blinking prompt
     if (blink) {
       ctx.fillStyle = '#667788';
       ctx.font = '7px "Pixelify Sans", sans-serif';
-      ctx.fillText(`Press ${aLetter} to accept or ${dLetter} to decline`, cx, cardY + cardH - 10);
+      ctx.fillText(`Press ${aLetter} to accept or ${dLetter} to decline`, cx, cardY + cardH - 6);
     }
   }
 
@@ -1142,13 +1159,15 @@ export class Game {
             : ['smg', 'machinegun', 'shotgun'];
         const weapon = weapons[Math.floor(Math.random() * weapons.length)];
         this.pickups.push(new Pickup(x, y, 'weapon', weapon));
-      } else if (roll < 0.65) {
+      } else if (roll < 0.60) {
         // Ammo for current weapon
         this.pickups.push(new Pickup(x, y, 'ammo'));
-      } else if (roll < 0.80) {
+      } else if (roll < 0.75) {
         this.pickups.push(new Pickup(x, y, 'health'));
-      } else if (roll < 0.93) {
+      } else if (roll < 0.88) {
         this.pickups.push(new Pickup(x, y, 'revert'));
+      } else if (roll < 0.95) {
+        this.pickups.push(new Pickup(x, y, 'cherry-pick'));
       } else {
         this.pickups.push(new Pickup(x, y, 'stash'));
       }

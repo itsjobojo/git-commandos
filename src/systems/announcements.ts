@@ -26,8 +26,8 @@ const SHAPES = [
 ];
 
 export interface MeetingZone {
-  x: number;         // world X position
-  worldY: number;    // world Y position (scrolls with map)
+  x: number;         // screen X (world does not scroll horizontally)
+  worldY: number;    // scroll-anchored Y: screenY = worldY + cameraY (terrain moves down as cameraY grows)
   w: number;
   h: number;
   name: string;
@@ -45,7 +45,7 @@ export class AnnouncementSystem {
   private announcementText = '';
   private announcementTimer = 0;
   private announcementStyle = 0;
-  update(dt: number, gameTime: number, _cameraY: number): void {
+  update(dt: number, gameTime: number, cameraY: number): void {
     if (gameTime < 5) return;
 
     // Update active zones
@@ -61,12 +61,12 @@ export class AnnouncementSystem {
     // Spawn new zones
     this.nextTrigger -= dt;
     if (this.nextTrigger <= 0 && this.zones.length === 0) {
-      this.spawnZone();
+      this.spawnZone(cameraY);
       this.nextTrigger = 15 + Math.random() * 15;
     }
   }
 
-  private spawnZone(): void {
+  private spawnZone(cameraY: number): void {
     const isAvoid = Math.random() < 0.6;
     const name = MEETING_NAMES[Math.floor(Math.random() * MEETING_NAMES.length)];
     const subtitle = SUBTITLES[Math.floor(Math.random() * SUBTITLES.length)];
@@ -76,9 +76,11 @@ export class AnnouncementSystem {
     const w = shape[0] + Math.random() * (shape[1] - shape[0]);
     const h = shape[2] + Math.random() * (shape[3] - shape[2]);
 
-    // Position in screen coordinates — zone appears directly on the visible area
+    // Pick where the zone appears on screen right now, then anchor it to the
+    // scroll so it rides the terrain: screenY = worldY + cameraY.
     const x = 10 + Math.random() * (CANVAS_WIDTH - w - 20);
-    const worldY = 30 + Math.random() * (CANVAS_HEIGHT - h - 60);
+    const screenYAtSpawn = 30 + Math.random() * (CANVAS_HEIGHT - h - 60);
+    const worldY = screenYAtSpawn - cameraY;
 
     const duration = isAvoid ? (8 + Math.random() * 5) : (6 + Math.random() * 3);
 
@@ -98,16 +100,16 @@ export class AnnouncementSystem {
     playSound('explosion', 0.4);
   }
 
-  /** Zone Y is already in screen coordinates */
-  private screenY(z: MeetingZone): number {
-    return z.worldY;
+  /** Screen Y of a scroll-anchored zone: it rides the terrain as the camera scrolls. */
+  private screenY(z: MeetingZone, cameraY: number): number {
+    return z.worldY + cameraY;
   }
 
   /** Check if player (in screen coords) is inside any avoid zone */
-  isPlayerSlowed(px: number, py: number, pw: number, ph: number): boolean {
+  isPlayerSlowed(px: number, py: number, pw: number, ph: number, cameraY: number): boolean {
     for (const z of this.zones) {
       if (z.type !== 'avoid') continue;
-      const sy = this.screenY(z);
+      const sy = this.screenY(z, cameraY);
       if (px + pw > z.x && px < z.x + z.w && py + ph > sy && py < sy + z.h) {
         return true;
       }
@@ -116,10 +118,10 @@ export class AnnouncementSystem {
   }
 
   /** Check if player reached a rush zone */
-  checkRushClaim(px: number, py: number, pw: number, ph: number): MeetingZone | null {
+  checkRushClaim(px: number, py: number, pw: number, ph: number, cameraY: number): MeetingZone | null {
     for (const z of this.zones) {
       if (z.type !== 'rush' || z.claimed) continue;
-      const sy = this.screenY(z);
+      const sy = this.screenY(z, cameraY);
       if (px + pw > z.x && px < z.x + z.w && py + ph > sy && py < sy + z.h) {
         z.claimed = true;
         return z;
@@ -129,10 +131,10 @@ export class AnnouncementSystem {
   }
 
   /** Check if player is inside any rush (green) zone */
-  isPlayerInRush(px: number, py: number, pw: number, ph: number): boolean {
+  isPlayerInRush(px: number, py: number, pw: number, ph: number, cameraY: number): boolean {
     for (const z of this.zones) {
       if (z.type !== 'rush') continue;
-      const sy = this.screenY(z);
+      const sy = this.screenY(z, cameraY);
       if (px + pw > z.x && px < z.x + z.w && py + ph > sy && py < sy + z.h) {
         return true;
       }
@@ -147,9 +149,9 @@ export class AnnouncementSystem {
     return 0;
   }
 
-  render(ctx: CanvasRenderingContext2D): void {
+  render(ctx: CanvasRenderingContext2D, cameraY: number): void {
     for (const z of this.zones) {
-      const sy = this.screenY(z);
+      const sy = this.screenY(z, cameraY);
       // Only render if on screen
       if (sy + z.h < -20 || sy > CANVAS_HEIGHT + 20) continue;
       this.renderZone(ctx, z, sy);

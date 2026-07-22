@@ -46,7 +46,7 @@ export class Player extends Entity {
     this.walking = this.vx !== 0 || this.vy !== 0;
     if (this.walking) {
       this.walkTimer += dt * 8;
-      // Only tilt left/right — vertical movement keeps sprite facing up
+      // Rotate the sprite toward the movement direction (source art faces right).
       this.angle = Math.atan2(this.vy, this.vx);
       // 4-dir facing for melee box
       const ax = Math.abs(this.vx), ay = Math.abs(this.vy);
