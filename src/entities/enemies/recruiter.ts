@@ -38,6 +38,12 @@ export class Recruiter extends Enemy {
     }
   }
 
+  /** Shift the sine-oscillation centre so a world-collision restore actually sticks. */
+  nudge(dx: number): void {
+    this.baseX += dx;
+    this.x += dx;
+  }
+
   canFire(): boolean {
     return this.fireTimer <= 0;
   }
@@ -49,11 +55,10 @@ export class Recruiter extends Enemy {
     bullet.y = this.y + this.height;
     bullet.owner = 'enemy';
     bullet.spriteRow = 2;
-    bullet.hitboxPadding = 9;
 
     const dx = playerX - bullet.x;
     const dy = playerY - bullet.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
     const speed = 80;
     bullet.vx = (dx / dist) * speed;
     bullet.vy = (dy / dist) * speed;

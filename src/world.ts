@@ -362,8 +362,16 @@ const AREA_W = 14;
 const AREA_H = 8;
 const AREA_COL = Math.floor((COLS - AREA_W) / 2);
 
-export const START_AREA = { row: 19, col: AREA_COL, w: AREA_W, h: AREA_H };
-export const END_AREA   = { row: 120, col: AREA_COL, w: AREA_W, h: AREA_H };
+// Row placement of the start/finish pads. The camera scrolls the whole world
+// (gameRows) before the finish wraps back on-screen, so the scroll distance to
+// the finish is (gameRows - (END_AREA_ROW - START_AREA_ROW)) rows.
+export const START_AREA_ROW = 19;
+export const END_AREA_ROW = 40;
+export const SCROLL_ROWS_TO_END = END_AREA_ROW - START_AREA_ROW;
+
+export const START_AREA = { row: START_AREA_ROW, col: AREA_COL, w: AREA_W, h: AREA_H };
+// Finish pad spans the full width so it reads as a finish line and can't be dodged.
+export const END_AREA   = { row: END_AREA_ROW, col: 0, w: COLS, h: AREA_H };
 
 let WORLD_PATTERN: Tile[][] = [];
 let WORLD_OVERLAY: (Tile | null)[][] = [];
@@ -391,14 +399,14 @@ export function initWorld(totalRows: number): void {
   WORLD_DOOR_PORTALS = worldData.doorPortals;
   SOLID_MAP = worldData.solid;
 
-  START_AREA.row = 19;
-  END_AREA.row = 40; // ~87% of world rows must scroll before this wraps back on-screen
+  START_AREA.row = START_AREA_ROW;
+  END_AREA.row = END_AREA_ROW;
 
-  placeArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, AREA_W, AREA_H);
-  placeArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, AREA_W, AREA_H);
+  placeArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, START_AREA.w, START_AREA.h);
+  placeArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, END_AREA.w, END_AREA.h);
 
-  clearAroundArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, AREA_W, AREA_H, totalRows);
-  clearAroundArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, AREA_W, AREA_H, totalRows);
+  clearAroundArea(WORLD_PATTERN, START_AREA.row, START_AREA.col, START_AREA.w, START_AREA.h, totalRows);
+  clearAroundArea(WORLD_PATTERN, END_AREA.row, END_AREA.col, END_AREA.w, END_AREA.h, totalRows);
 
   // Rebuild solid map to account for area stamps
   for (let r = 0; r < totalRows; r++) {

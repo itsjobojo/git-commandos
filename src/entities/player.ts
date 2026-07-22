@@ -77,6 +77,13 @@ export class Player extends Entity {
     }
   }
 
+  /** Smaller centered box used only for *incoming* damage — lets edge pixels graze. */
+  getHurtBounds(): { x: number; y: number; w: number; h: number } {
+    const size = 14;
+    const inset = (this.width - size) / 2;
+    return { x: this.x + inset, y: this.y + inset, w: size, h: size };
+  }
+
   canFire(): boolean {
     return this.fireCooldown <= 0;
   }
