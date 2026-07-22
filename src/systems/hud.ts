@@ -103,13 +103,14 @@ export function renderHud(ctx: CanvasRenderingContext2D, player: Player, gitFile
   // Weapon + ammo counter
   ctx.textAlign = 'left';
   ctx.font = 'bold 8px monospace';
-  if (player.ammo > 0) {
+  if (player.weapon === 'pistol') {
+    // Pistol is the infinite fallback weapon
+    ctx.fillStyle = '#2ecc71';
+    ctx.fillText('PISTOL: ∞', 4, CANVAS_HEIGHT - 12);
+  } else {
     const wName = WEAPONS[player.weapon].name;
     ctx.fillStyle = '#2ecc71';
     ctx.fillText(`${wName}: ${player.ammo}`, 4, CANVAS_HEIGHT - 12);
-  } else {
-    ctx.fillStyle = '#f5a623';
-    ctx.fillText('KNIFE', 4, CANVAS_HEIGHT - 12);
   }
 
   // Controls
@@ -117,7 +118,7 @@ export function renderHud(ctx: CanvasRenderingContext2D, player: Player, gitFile
   ctx.font = 'bold 7px monospace';
 
   ctx.fillStyle = '#aabbcc';
-  ctx.fillText(player.ammo > 0 ? 'Z:shoot' : 'Z:stab', 4, cmdY);
+  ctx.fillText('Z:shoot X:stab', 4, cmdY);
 
   ctx.fillStyle = player.gitRevertCharges > 0 ? '#e94560' : '#555555';
   ctx.fillText(`C:revert(${player.gitRevertCharges})`, 70, cmdY);
