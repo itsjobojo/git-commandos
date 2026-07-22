@@ -1,7 +1,14 @@
+// Keys the game consumes — only these get preventDefault, so browser
+// shortcuts (F5, Cmd+R, F12, …) keep working.
+const GAME_KEYS = new Set<string>([
+  'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+  'KeyA', 'KeyW', 'KeyS', 'KeyD',
+  'Space', 'KeyZ', 'KeyX', 'KeyC', 'KeyQ', 'KeyE', 'KeyI', 'Enter',
+]);
+
 export class Input {
   private keys = new Map<string, boolean>();
   private justPressedKeys = new Set<string>();
-  private previousKeys = new Set<string>();
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -9,12 +16,12 @@ export class Input {
         this.justPressedKeys.add(e.code);
       }
       this.keys.set(e.code, true);
-      e.preventDefault();
+      if (GAME_KEYS.has(e.code)) e.preventDefault();
     });
 
     window.addEventListener('keyup', (e) => {
       this.keys.set(e.code, false);
-      e.preventDefault();
+      if (GAME_KEYS.has(e.code)) e.preventDefault();
     });
   }
 
@@ -28,10 +35,6 @@ export class Input {
 
   endFrame(): void {
     this.justPressedKeys.clear();
-    this.previousKeys.clear();
-    for (const [key, val] of this.keys) {
-      if (val) this.previousKeys.add(key);
-    }
   }
 
   // Convenience: check movement directions (arrow keys + WASD)

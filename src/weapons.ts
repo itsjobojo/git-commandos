@@ -36,7 +36,7 @@ export const WEAPONS: Record<WeaponType, WeaponDef> = {
     damage: 1,
     spread: 3,
     spreadAngle: 0.5,
-    ammoOnPickup: 80,
+    ammoOnPickup: 120,
   },
   shotgun: {
     name: 'SHOTGUN',
