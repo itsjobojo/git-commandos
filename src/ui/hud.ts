@@ -48,7 +48,16 @@ export class Hud {
   private readonly barLabel: HTMLDivElement;
   private readonly status: HTMLDivElement;
   private readonly flashes: HTMLDivElement;
-  private readonly rows = new Map<string, { row: HTMLDivElement; label: HTMLSpanElement; timer: HTMLSpanElement }>();
+  private readonly rows = new Map<
+    string,
+    {
+      row: HTMLDivElement;
+      label: HTMLSpanElement;
+      timer: HTMLSpanElement;
+      bar: HTMLDivElement;
+      barFill: HTMLDivElement;
+    }
+  >();
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'position:absolute; inset:0; pointer-events:none;');
@@ -107,14 +116,26 @@ export class Hud {
     );
 
     for (const file of mission.files) {
+      const wrapper = el('div', 'margin-bottom:1px;');
       const row = el('div', 'display:flex; gap:8px; align-items:baseline; transition:color .2s;');
       const label = el('span', 'flex:1;');
       label.textContent = `▪ ${basename(file.name)}`;
       const timer = el('span', 'font-size:11px; opacity:.9;');
       row.title = file.name;
       row.append(label, timer);
-      this.rows.set(file.name, { row, label, timer });
-      this.manifest.appendChild(row);
+
+      // A drain bar under the row, shown only while this crate is bleeding out.
+      const bar = el(
+        'div',
+        `height:3px; background:rgba(255,255,255,.1); border-radius:2px; overflow:hidden;
+         margin:1px 0 3px 12px; display:none;`,
+      );
+      const barFill = el('div', 'height:100%; width:100%; background:#fbbf24;');
+      bar.appendChild(barFill);
+
+      wrapper.append(row, bar);
+      this.rows.set(file.name, { row, label, timer, bar, barFill });
+      this.manifest.appendChild(wrapper);
     }
   }
 
@@ -142,11 +163,19 @@ export class Hud {
       entry.label.style.textDecoration = crate.state === 'lost' ? 'line-through' : 'none';
       entry.row.style.opacity = crate.state === 'lost' ? '0.55' : '1';
 
-      // A dropped crate gets a live countdown — the single most urgent number
-      // on screen, because it is a file bleeding out.
-      entry.timer.textContent =
-        crate.state === 'dropped' ? `${crate.decay.toFixed(1)}s` : style.note;
-      entry.timer.style.color = crate.state === 'dropped' ? '#fbbf24' : '#4b5c66';
+      // A dropped crate gets a live countdown AND a draining bar — the single
+      // most urgent thing on screen, because it is a file bleeding out.
+      const dropped = crate.state === 'dropped';
+      entry.timer.textContent = dropped ? `${crate.decay.toFixed(1)}s` : style.note;
+      entry.timer.style.color = dropped ? '#fbbf24' : '#4b5c66';
+
+      entry.bar.style.display = dropped ? 'block' : 'none';
+      if (dropped && state.decaySeconds > 0) {
+        const remaining = Math.max(0, Math.min(1, crate.decay / state.decaySeconds));
+        entry.barFill.style.width = `${(remaining * 100).toFixed(1)}%`;
+        // Goes red as it runs out, so peripheral vision catches it.
+        entry.barFill.style.background = remaining < 0.3 ? '#f87171' : '#fbbf24';
+      }
     }
 
     this.bar.style.opacity = state.progress > 0 ? '1' : '0';

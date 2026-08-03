@@ -91,7 +91,11 @@ export class MeetingState {
     readonly profile: BlobProfile,
   ) {
     this.timeLeft = kind === 'mandatory' ? MANDATORY_WINDOW : duration;
+    this.totalTime = this.timeLeft;
   }
+
+  /** What `timeLeft` started at, so a bar can show the fraction remaining. */
+  readonly totalTime: number;
 
   contains(px: number, pz: number): boolean {
     return this.profile.contains(px - this.x, pz - this.z);
@@ -141,9 +145,10 @@ export class Meeting {
   readonly group = new Group();
   private readonly fill: Mesh;
   private readonly outline: Mesh;
-  private readonly countdown: Sprite | null;
+  private readonly countdown: Sprite;
   private countdownTexture: CanvasTexture | null = null;
   private lastShownSecond = -1;
+  private lastShownBar = -1;
   private splat = 0;
 
   constructor(kind: MeetingKind, title: string, x: number, z: number, duration: number, rng: Rng) {
@@ -169,18 +174,15 @@ export class Meeting {
     label.position.y = 2.4;
     label.center.set(0.5, 0);
 
-    // Only mandatory meetings show a clock — an avoid blob doesn't want you to
-    // know how long it lasts, and you shouldn't be planning around it anyway.
-    this.countdown = kind === 'mandatory' ? new Sprite(new SpriteMaterial({ transparent: true, depthTest: false })) : null;
-    if (this.countdown) {
-      this.countdown.scale.set(1.8, 0.9, 1);
-      this.countdown.position.y = 3.5;
-      this.countdown.center.set(0.5, 0);
-    }
+    // Both kinds get a clock. Knowing an avoid blob clears in 4s turns it from
+    // a wall into a decision: wait it out, or spend the time going around.
+    this.countdown = new Sprite(new SpriteMaterial({ transparent: true, depthTest: false }));
+    this.countdown.scale.set(2.6, 1.0, 1);
+    this.countdown.position.y = 3.5;
+    this.countdown.center.set(0.5, 0);
 
     this.group.position.set(x, 0.07, z);
-    this.group.add(this.fill, this.outline, label);
-    if (this.countdown) this.group.add(this.countdown);
+    this.group.add(this.fill, this.outline, label, this.countdown);
     this.group.scale.setScalar(0.01);
   }
 
@@ -227,22 +229,30 @@ export class Meeting {
     if (this.state.kind === 'mandatory') {
       (this.fill.material as MeshBasicMaterial).opacity =
         0.13 + this.state.attendanceProgress * 0.22;
-      this.updateCountdown();
     }
+    this.updateCountdown();
 
     return event;
   }
 
-  /** Redraw only when the displayed second actually changes. */
+  /**
+   * Redraw only when the number or the bar visibly changes — a canvas redraw
+   * every frame for three meetings would be pure waste, and at this size 40
+   * steps of bar is already smooth.
+   */
   private updateCountdown(): void {
-    if (!this.countdown) return;
     const seconds = Math.max(0, Math.ceil(this.state.timeLeft));
-    if (seconds === this.lastShownSecond) return;
+    const remaining = Math.max(0, Math.min(1, this.state.timeLeft / this.state.totalTime));
+    const barStep = Math.round(remaining * 40);
+    if (seconds === this.lastShownSecond && barStep === this.lastShownBar) return;
+
     this.lastShownSecond = seconds;
+    this.lastShownBar = barStep;
     this.countdownTexture?.dispose();
-    this.countdownTexture = countdownTexture(seconds, this.state.urgency);
-    (this.countdown.material as SpriteMaterial).map = this.countdownTexture;
-    (this.countdown.material as SpriteMaterial).needsUpdate = true;
+    this.countdownTexture = countdownTexture(seconds, remaining, this.state.kind);
+    const material = this.countdown.material as SpriteMaterial;
+    material.map = this.countdownTexture;
+    material.needsUpdate = true;
   }
 
   dispose(): void {
@@ -349,18 +359,41 @@ function titleTexture(title: string, kind: MeetingKind): CanvasTexture {
   return toTexture(canvas);
 }
 
-function countdownTexture(seconds: number, urgency: number): CanvasTexture {
+/** Seconds remaining, over a bar that drains left to right as it runs out. */
+function countdownTexture(seconds: number, remaining: number, kind: MeetingKind): CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 192;
-  canvas.height = 96;
+  canvas.width = 256;
+  canvas.height = 100;
   const ctx = canvas.getContext('2d')!;
-  ctx.font = 'bold 58px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+  const urgent = remaining < 0.25;
+  const colour = kind === 'mandatory' ? (urgent ? '#f87171' : '#fbbf24') : '#ef4444';
+
+  ctx.font = 'bold 52px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,.95)';
   ctx.shadowBlur = 12;
-  ctx.fillStyle = urgency > 0.75 ? '#f87171' : '#fbbf24';
-  ctx.fillText(`${seconds}s`, canvas.width / 2, canvas.height / 2);
+  ctx.fillStyle = colour;
+  ctx.fillText(`${seconds}s`, canvas.width / 2, 34);
+
+  const barW = 200;
+  const barH = 12;
+  const barX = (canvas.width - barW) / 2;
+  const barY = 70;
+
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = 'rgba(0,0,0,.55)';
+  ctx.fillRect(barX, barY, barW, barH);
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = colour;
+  ctx.fillRect(barX, barY, barW * remaining, barH);
+
+  ctx.strokeStyle = 'rgba(255,255,255,.28)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(barX, barY, barW, barH);
+
   return toTexture(canvas);
 }
 
