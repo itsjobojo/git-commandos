@@ -127,15 +127,39 @@ describe('buildRoute', () => {
     }
   });
 
-  it('carves a route rather than an open arena', () => {
-    const map = buildRoute(new Rng('fix: auth'), 44, 44, TILE);
-    let open = 0;
-    for (let i = 0; i < map.grid.solid.length; i++) {
-      if (map.grid.solid[i] === CELL.EMPTY) open++;
+  /**
+   * The route should read as open ground that goes somewhere: roomy enough to
+   * fight and flank in, bounded enough that the direction of travel is never
+   * in question. Too tight and it's a maze you thread; too loose and A-to-B
+   * stops meaning anything.
+   */
+  it('leaves open ground that is still clearly bounded', () => {
+    for (const cells of [36, 44, 60]) {
+      for (let seed = 0; seed < 8; seed++) {
+        const map = buildRoute(new Rng(seed), cells, cells, TILE);
+        let open = 0;
+        for (let i = 0; i < map.grid.solid.length; i++) {
+          if (map.grid.solid[i] === CELL.EMPTY) open++;
+        }
+        const fraction = open / map.grid.solid.length;
+        expect(fraction, `${cells} seed ${seed}`).toBeGreaterThan(0.18);
+        expect(fraction, `${cells} seed ${seed}`).toBeLessThan(0.6);
+      }
     }
-    // A corridor network should leave most of the map as solid rock.
-    expect(open / map.grid.solid.length).toBeLessThan(0.45);
-    expect(open / map.grid.solid.length).toBeGreaterThan(0.05);
+  });
+
+  it('keeps openness consistent as the map scales up', () => {
+    // Widths are a fraction of the map, so a bigger commit gets a grander
+    // route rather than the same narrow valley in a larger rock field.
+    const measure = (cells: number): number => {
+      const map = buildRoute(new Rng(11), cells, cells, TILE);
+      let open = 0;
+      for (let i = 0; i < map.grid.solid.length; i++) {
+        if (map.grid.solid[i] === CELL.EMPTY) open++;
+      }
+      return open / map.grid.solid.length;
+    };
+    expect(Math.abs(measure(36) - measure(64))).toBeLessThan(0.15);
   });
 
   it('keeps the border sealed', () => {

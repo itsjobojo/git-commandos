@@ -34,7 +34,25 @@ const MIN_SEPARATION_FRACTION = 0.62;
  * leave cells connected only at their corners, which is a corridor the flood
  * fill — and the player — cannot get through.
  */
-const SAFE_CORRIDOR_RADIUS = 2.1;
+const SAFE_CORRIDOR_RADIUS = 3.4;
+
+/**
+ * The route is a wide valley, not a corridor network.
+ *
+ * The first pass cut passages barely wider than the player, which read as a
+ * maze — you were threading gaps rather than travelling. These are deliberately
+ * generous: there should be room to circle an enemy, flank, or run a stampede
+ * out, while the surrounding rock still makes the direction of travel obvious.
+ * Open, but going somewhere.
+ */
+/**
+ * Widths are a fraction of the map's shorter side, not absolute. Fixed sizes
+ * meant a big commit produced a big map threaded by the same narrow valley, so
+ * larger runs felt progressively more claustrophobic rather than grander.
+ */
+const CORRIDOR_FRACTION: [number, number] = [0.07, 0.095];
+const ROOM_FRACTION: [number, number] = [0.12, 0.17];
+const BRANCH_FRACTION = 0.055;
 
 /**
  * Carve a route from A to B.
@@ -53,18 +71,24 @@ export function buildRoute(rng: Rng, cols = 44, rows = 44, tile = 2): BuiltMap {
 
   const { spawn, extraction } = pickEndpoints(rng, cols, rows, tile);
   const waypoints = routeWaypoints(rng, spawn, extraction, cols, rows, tile);
+  const span = Math.min(cols, rows) * tile;
 
   // Every carved link, so the safety pass below knows what must stay open.
   const links: Array<[Spot, Spot]> = [];
   for (let i = 0; i < waypoints.length - 1; i++) {
     links.push([waypoints[i], waypoints[i + 1]]);
-    carveCorridor(grid, waypoints[i], waypoints[i + 1], rng.range(2.4, 3.6));
+    carveCorridor(
+      grid,
+      waypoints[i],
+      waypoints[i + 1],
+      span * rng.range(CORRIDOR_FRACTION[0], CORRIDOR_FRACTION[1]),
+    );
   }
   for (const point of waypoints) {
-    carveRoom(grid, point, rng.range(4.5, 7), rng);
+    carveRoom(grid, point, span * rng.range(ROOM_FRACTION[0], ROOM_FRACTION[1]), rng);
   }
 
-  const stash = carveSideBranch(grid, rng, waypoints, cols, rows, tile, links);
+  const stash = carveSideBranch(grid, rng, waypoints, cols, rows, tile, links, span);
 
   scatterCover(grid, rng, spawn, extraction);
 
@@ -211,13 +235,14 @@ function carveSideBranch(
   rows: number,
   tile: number,
   links: Array<[Spot, Spot]>,
+  span: number,
 ): Spot | null {
   if (waypoints.length < 3) return null;
   const anchor = waypoints[rng.int(1, waypoints.length - 2)];
 
   for (let attempt = 0; attempt < 24; attempt++) {
     const angle = rng.range(0, Math.PI * 2);
-    const length = rng.range(10, 16);
+    const length = span * rng.range(0.14, 0.22);
     const end = clampToBounds(
       { x: anchor.x + Math.cos(angle) * length, z: anchor.z + Math.sin(angle) * length },
       cols,
@@ -228,8 +253,8 @@ function carveSideBranch(
     const nearRoute = waypoints.some((w) => w !== anchor && distance(w, end) < 12);
     if (nearRoute) continue;
 
-    carveCorridor(grid, anchor, end, 2.4);
-    carveRoom(grid, end, 4.5, rng);
+    carveCorridor(grid, anchor, end, span * BRANCH_FRACTION);
+    carveRoom(grid, end, span * 0.085, rng);
     links.push([anchor, end]);
     return end;
   }
@@ -239,24 +264,45 @@ function carveSideBranch(
 /** Waist-high cover inside the carved space — the things you fight around. */
 function scatterCover(grid: Grid, rng: Rng, spawn: Spot, extraction: Spot): void {
   const open: Array<{ cx: number; cz: number }> = [];
-  for (let cz = 1; cz < grid.rows - 1; cz++) {
-    for (let cx = 1; cx < grid.cols - 1; cx++) {
+  for (let cz = 2; cz < grid.rows - 2; cz++) {
+    for (let cx = 2; cx < grid.cols - 2; cx++) {
       if (grid.cell(cx, cz) !== CELL.EMPTY) continue;
       const x = (cx + 0.5) * grid.tile;
       const z = (cz + 0.5) * grid.tile;
       // Keep the endpoints clear so you can always land and always extract.
-      if (distance({ x, z }, spawn) < 6 || distance({ x, z }, extraction) < 8) continue;
+      if (distance({ x, z }, spawn) < 8 || distance({ x, z }, extraction) < 10) continue;
       open.push({ cx, cz });
     }
   }
+  if (open.length === 0) return;
 
   rng.shuffle(open);
-  const budget = Math.floor(open.length * 0.1);
-  for (let i = 0; i < budget && i < open.length; i++) {
+
+  // Clusters, not confetti. Single scattered cells give nothing to hide behind
+  // and just make the floor noisy; a two-by-three block is an actual position
+  // to fight from, which is what open space needs to stay interesting.
+  const clusters = Math.max(4, Math.floor(open.length / 26));
+  for (let i = 0; i < clusters && i < open.length; i++) {
     const { cx, cz } = open[i];
-    grid.setCell(cx, cz, CELL.COVER);
+    const w = rng.int(1, 3);
+    const h = rng.int(1, 3);
+    for (let dz = 0; dz < h; dz++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (grid.cell(cx + dx, cz + dz) !== CELL.EMPTY) continue;
+        grid.setCell(cx + dx, cz + dz, CELL.COVER);
+      }
+    }
   }
 
+  // A few full-height pillars to break the long sightlines a wide valley
+  // creates, without turning any of it back into a maze.
+  const pillars = Math.max(2, Math.floor(clusters * 0.35));
+  for (let i = 0; i < pillars; i++) {
+    const spot = open[(clusters + i) % open.length];
+    if (grid.cell(spot.cx, spot.cz) !== CELL.EMPTY) continue;
+    grid.setCell(spot.cx, spot.cz, CELL.WALL);
+    if (rng.next() < 0.5) grid.setCell(spot.cx + 1, spot.cz, CELL.WALL);
+  }
 }
 
 function clampToBounds(point: Spot, cols: number, rows: number, tile: number): Spot {
