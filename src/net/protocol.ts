@@ -54,6 +54,12 @@ export interface GitContext {
   repo: string;
   /** Idempotent — only the first call is sent on the wire. */
   sendResult: (outcome: Outcome, result: RunResult) => void;
+  /**
+   * Walk away without a result. The CLI sees the socket close and treats it as
+   * an abort, which changes nothing — the correct way to quit a run you don't
+   * want to finish.
+   */
+  abort: () => void;
 }
 
 export interface RunResult {
@@ -113,6 +119,11 @@ export function connectGitContext(): Promise<GitContext | null> {
         linesAdded: msg.payload.linesAdded ?? 0,
         branch: msg.payload.branch ?? 'HEAD',
         repo: msg.payload.repo ?? '',
+        abort() {
+          if (sent) return;
+          sent = true;
+          ws.close();
+        },
         sendResult(outcome, result) {
           // Sending twice would let the CLI act on a stale result. One only.
           if (sent) return;

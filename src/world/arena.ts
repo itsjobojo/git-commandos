@@ -32,8 +32,7 @@ export function buildTestArena(rng: Rng, cols = 44, rows = 44, tile = 2): BuiltM
     grid.setCell(cols - 1, cz, CELL.WALL);
   }
 
-  const spawn = { x: cols * tile * 0.5, z: (rows - 4) * tile };
-  const extraction = { x: cols * tile * 0.5, z: 4 * tile };
+  const { spawn, extraction } = pickEndpoints(rng, cols, rows, tile);
 
   // Interior structures. Keep spawn and extraction clear.
   const keepClear = (cx: number, cz: number): boolean => {
@@ -75,6 +74,87 @@ export function buildTestArena(rng: Rng, cols = 44, rows = 44, tile = 2): BuiltM
   }
 
   return { grid, group: buildMeshes(grid), spawn, extraction };
+}
+
+/** Keep endpoints this many cells clear of the border wall. */
+const ENDPOINT_MARGIN = 4;
+/**
+ * Minimum spawn↔extraction distance as a fraction of the arena's shorter side.
+ * High enough that the haul is always a real traverse, low enough that a
+ * randomly-picked pair almost always satisfies it on the first few tries.
+ */
+const MIN_SEPARATION_FRACTION = 0.62;
+
+/**
+ * Seeded random spawn and extraction, separated by at least
+ * `MIN_SEPARATION_FRACTION` of the map.
+ *
+ * Fixed endpoints meant every mission was the same north-south corridor and
+ * you learned the route once. Randomising them means the same commit still
+ * generates the same map (the RNG is seeded), but two different commits are
+ * two different problems.
+ */
+export function pickEndpoints(
+  rng: Rng,
+  cols: number,
+  rows: number,
+  tile: number,
+): { spawn: Spot; extraction: Spot } {
+  const minSeparation = Math.min(cols, rows) * tile * MIN_SEPARATION_FRACTION;
+
+  const randomPoint = (): Spot => ({
+    x: (rng.int(ENDPOINT_MARGIN, cols - 1 - ENDPOINT_MARGIN) + 0.5) * tile,
+    z: (rng.int(ENDPOINT_MARGIN, rows - 1 - ENDPOINT_MARGIN) + 0.5) * tile,
+  });
+
+  // Spawn hugs the perimeter — you insert from outside. It also guarantees the
+  // separation target is reachable at all: a spawn near the middle of the map
+  // has no point far enough away from it, and rejection sampling would spend
+  // its whole budget failing.
+  const spawn = perimeterPoint(rng, cols, rows, tile);
+  let best = randomPoint();
+  let bestDistance = distance(spawn, best);
+
+  // Rejection sampling, keeping the farthest candidate seen. Bounded so a
+  // pathological arena can't hang the loop — the fallback is simply the best
+  // pair we found, which is still a long way apart.
+  for (let i = 0; i < 60 && bestDistance < minSeparation; i++) {
+    const candidate = randomPoint();
+    const d = distance(spawn, candidate);
+    if (d > bestDistance) {
+      best = candidate;
+      bestDistance = d;
+    }
+  }
+
+  return { spawn, extraction: best };
+}
+
+/** A point in the outer band of the map, on a randomly chosen side. */
+function perimeterPoint(rng: Rng, cols: number, rows: number, tile: number): Spot {
+  const depth = rng.int(ENDPOINT_MARGIN, ENDPOINT_MARGIN + 2);
+  const side = rng.int(0, 3);
+  const alongX = rng.int(ENDPOINT_MARGIN, cols - 1 - ENDPOINT_MARGIN);
+  const alongZ = rng.int(ENDPOINT_MARGIN, rows - 1 - ENDPOINT_MARGIN);
+
+  switch (side) {
+    case 0:
+      return cellCentre(alongX, depth, tile);
+    case 1:
+      return cellCentre(cols - 1 - depth, alongZ, tile);
+    case 2:
+      return cellCentre(alongX, rows - 1 - depth, tile);
+    default:
+      return cellCentre(depth, alongZ, tile);
+  }
+}
+
+function cellCentre(cx: number, cz: number, tile: number): Spot {
+  return { x: (cx + 0.5) * tile, z: (cz + 0.5) * tile };
+}
+
+function distance(a: Spot, b: Spot): number {
+  return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
 export interface Spot {

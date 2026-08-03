@@ -2,31 +2,50 @@ import { CSS, el, fadeIn } from './overlay';
 import type { Mission } from '../game/mission';
 import type { Outcome } from '../net/protocol';
 
+/**
+ * Why the run ended. `empty-handed` is a loss, but a different one from being
+ * put down — you walked onto the pad with nothing, and saying so is clearer
+ * than a generic GAME OVER.
+ */
+export type DebriefReason = 'extracted' | 'empty-handed' | 'down';
+
 export interface DebriefData {
   outcome: Outcome;
+  reason: DebriefReason;
   mission: Mission;
   surviving: string[];
   lost: string[];
   stashed: string[];
 }
 
+const HEADLINE: Record<DebriefReason, { label: string; colour: string }> = {
+  extracted: { label: 'extraction complete', colour: '#4ade80' },
+  'empty-handed': { label: 'extracted empty-handed', colour: '#fbbf24' },
+  down: { label: 'mission failed', colour: '#f87171' },
+};
+
 /**
  * Post-run debrief. States exactly what the CLI is about to do to the working
  * tree, per file. A tool that can unstage your work owes you this screen.
  */
 export function showDebrief(root: HTMLElement, data: DebriefData): void {
-  const { outcome, mission, surviving, lost, stashed } = data;
+  const { outcome, reason, mission, surviving, lost, stashed } = data;
   const won = outcome === 'win';
+  const headline = HEADLINE[reason];
 
   const screen = el('div', CSS.fullscreen);
   const panel = el('div', CSS.panel);
 
-  panel.appendChild(el('div', CSS.label, won ? 'extraction complete' : 'mission failed'));
+  panel.appendChild(el('div', CSS.label, headline.label));
   panel.appendChild(
     el(
       'div',
-      `font-size:24px; margin:6px 0 14px; color:${won ? '#4ade80' : '#f87171'};`,
-      won ? `Committed ${surviving.length} file${surviving.length === 1 ? '' : 's'}` : 'Nothing committed',
+      `font-size:24px; margin:6px 0 14px; color:${headline.colour};`,
+      won
+        ? `Committed ${surviving.length} file${surviving.length === 1 ? '' : 's'}`
+        : reason === 'empty-handed'
+          ? 'You reached the beacon with no cargo'
+          : 'Nothing committed',
     ),
   );
 
@@ -66,6 +85,31 @@ export function showDebrief(root: HTMLElement, data: DebriefData): void {
       mission.sandbox
         ? 'Sandbox run — no git command was executed.'
         : 'Result sent to the CLI. You can close this window; check your terminal.',
+    ),
+  );
+
+  screen.appendChild(panel);
+  root.appendChild(screen);
+  fadeIn(screen);
+}
+
+/**
+ * Shown after a deliberate abort. Deliberately reassuring and specific: the
+ * point of aborting is that nothing happened, so say nothing happened.
+ */
+export function showAborted(root: HTMLElement, mission: Mission): void {
+  const screen = el('div', CSS.fullscreen);
+  const panel = el('div', `${CSS.panel} min-width:min(420px, 88vw);`);
+
+  panel.appendChild(el('div', CSS.label, 'run aborted'));
+  panel.appendChild(el('div', 'font-size:22px; margin:6px 0 14px; color:#8fa3ae;', 'Nothing was changed'));
+  panel.appendChild(
+    el(
+      'div',
+      'color:#5c7180;',
+      mission.sandbox
+        ? 'Sandbox run — no git command was executed.'
+        : 'No commit, no unstaging. Your index is exactly as you left it. You can close this window.',
     ),
   );
 

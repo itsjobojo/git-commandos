@@ -9,6 +9,8 @@ export interface HudState {
   inside: boolean;
   secondsRemaining: number;
   carrying: number;
+  /** 1 = unencumbered. Surfaced so the slowdown is legible, not mysterious. */
+  loadFactor: number;
   /** null unless the death rule is `health`. */
   hp: number | null;
   maxHp: number;
@@ -154,7 +156,11 @@ export class Hud {
       : 'extraction paused — return to the beacon';
     this.barFill.style.background = state.inside ? '#4ade80' : '#8fa3ae';
 
-    const bits = [`beacon ${state.distanceToPad.toFixed(0)}m`, `carrying ${state.carrying}`];
+    const slowdown = Math.round((1 - state.loadFactor) * 100);
+    const bits = [
+      `beacon ${state.distanceToPad.toFixed(0)}m`,
+      `carrying ${state.carrying}${slowdown > 0 ? ` (−${slowdown}% speed)` : ''}`,
+    ];
     if (state.hp !== null) bits.push(`hp ${'●'.repeat(Math.max(0, state.hp))}${'○'.repeat(Math.max(0, state.maxHp - state.hp))}`);
     this.status.textContent = state.progress >= 1 ? '' : bits.join(' · ');
   }

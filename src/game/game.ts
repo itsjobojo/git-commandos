@@ -18,11 +18,12 @@ import { CarrySystem } from '../systems/carry';
 import { DebugOverlay } from '../ui/debug';
 import { Hud } from '../ui/hud';
 import { showBriefing } from '../ui/briefing';
-import { showDebrief } from '../ui/debrief';
+import { showAborted, showDebrief, type DebriefReason } from '../ui/debrief';
+import { showPause } from '../ui/pause';
 import { basename, type Mission } from './mission';
 import type { GitContext, Outcome } from '../net/protocol';
 
-type State = 'briefing' | 'playing' | 'debrief';
+type State = 'briefing' | 'playing' | 'paused' | 'debrief';
 
 const PAD_RADIUS = 3.2;
 /** Health-rule only: how many hits before the run is lost outright. */
@@ -190,6 +191,12 @@ export class Game {
       return;
     }
 
+    if (intent.pause) {
+      this.input.consumeEdges();
+      void this.pause();
+      return;
+    }
+
     this.updateAim(intent.usingGamepad, intent.stickAimX, intent.stickAimZ, intent.pointerX, intent.pointerY);
 
     this.player.savePrevious();
@@ -245,6 +252,23 @@ export class Game {
     this.rig.screenToGround(ndcX, ndcY, this.aim);
   }
 
+  private async pause(): Promise<void> {
+    if (this.state !== 'playing') return;
+    this.state = 'paused';
+    const choice = await showPause(this.uiRoot, this.mission);
+    if (choice === 'resume') {
+      // The very keypress that dismissed the menu also latched a fresh pause
+      // edge on the input. Without clearing it, the next step re-pauses and
+      // Escape appears to do nothing.
+      this.input.consumeEdges();
+      this.state = 'playing';
+      return;
+    }
+    this.state = 'debrief';
+    this.git?.abort();
+    showAborted(this.uiRoot, this.mission);
+  }
+
   /**
    * The only place a result reaches the CLI, and the only caller of
    * `ledger.result()`. `sendResult` is idempotent on the protocol side too —
@@ -254,10 +278,18 @@ export class Game {
     if (this.state === 'debrief') return;
     this.state = 'debrief';
 
-    const result = this.ledger.result(outcome);
-    this.git?.sendResult(outcome, result);
+    // Reaching the pad with nothing on your back is not a win. Reporting it as
+    // one made the CLI print a success banner and then exit 1, which is
+    // incoherent — and it would have committed nothing either way.
+    const empty = outcome === 'win' && this.ledger.result(outcome).surviving.length === 0;
+    const finalOutcome: Outcome = empty ? 'loss' : outcome;
+    const reason: DebriefReason = empty ? 'empty-handed' : outcome === 'win' ? 'extracted' : 'down';
+
+    const result = this.ledger.result(finalOutcome);
+    this.git?.sendResult(finalOutcome, result);
     showDebrief(this.uiRoot, {
-      outcome,
+      outcome: finalOutcome,
+      reason,
       mission: this.mission,
       surviving: result.surviving,
       lost: result.lost,
@@ -288,6 +320,7 @@ export class Game {
       inside: this.extraction.inside,
       secondsRemaining: this.extraction.secondsRemaining,
       carrying: this.ledger.carriedCount,
+      loadFactor: this.player.loadFactor,
       hp: this.mission.rules.death === 'health' ? this.hp : null,
       maxHp: MAX_HP,
       distanceToPad: Math.hypot(

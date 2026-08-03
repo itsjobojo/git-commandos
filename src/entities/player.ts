@@ -24,8 +24,15 @@ const ROLL_COOLDOWN = 0.42;
 /** i-frames run slightly shorter than the roll so it can't be spammed as armour. */
 const ROLL_IFRAMES = 0.22;
 
-/** Sprinting is a reward for travelling light — see REBUILD.md §1. */
-export const SPRINT_CRATE_LIMIT = 2;
+/**
+ * Each crate on your back costs this fraction of your speed, up to the cap.
+ *
+ * This replaced a hard "no sprinting above 2 crates" gate, which never fired:
+ * most commits are one or two files, so the travel-light tradeoff didn't
+ * exist. A continuous penalty means every single crate is a decision.
+ */
+const CARRY_SPEED_PENALTY = 0.06;
+const MAX_CARRY_PENALTY = 0.42;
 
 export class Player extends Entity {
   radius = 0.55;
@@ -100,8 +107,9 @@ export class Player extends Entity {
     return this.invulnTimer > 0;
   }
 
-  get canSprint(): boolean {
-    return this.carrying <= SPRINT_CRATE_LIMIT;
+  /** 1 = unencumbered, falling toward 0.58 as the stack grows. */
+  get loadFactor(): number {
+    return 1 - Math.min(this.carrying * CARRY_SPEED_PENALTY, MAX_CARRY_PENALTY);
   }
 
   get speed(): number {
@@ -150,7 +158,7 @@ export class Player extends Entity {
 
   private drive(dt: number, i: Intent): void {
     const wants = i.moveX !== 0 || i.moveZ !== 0;
-    const max = i.sprint && this.canSprint ? SPRINT_SPEED : BASE_SPEED;
+    const max = (i.sprint ? SPRINT_SPEED : BASE_SPEED) * this.loadFactor;
     const rate = (wants ? ACCEL : FRICTION) * dt;
     this.vx = moveToward(this.vx, i.moveX * max, rate);
     this.vz = moveToward(this.vz, i.moveZ * max, rate);

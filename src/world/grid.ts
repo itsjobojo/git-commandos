@@ -138,11 +138,32 @@ export class Grid {
   }
 
   /**
-   * Is there a clear straight line between two points? Used for enemy line of
-   * sight and for deciding whether a dropped crate is reachable.
-   * Amanatides-Woo grid traversal.
+   * Can an enemy *see* this point? Only full-height walls block vision —
+   * crouching behind waist-high cover hides you from bullets, not from eyes.
    */
-  lineOfSight(x0: number, z0: number, x1: number, z1: number): boolean {
+  hasLineOfSight(x0: number, z0: number, x1: number, z1: number): boolean {
+    return this.trace(x0, z0, x1, z1, (cx, cz) => this.cell(cx, cz) === CELL.WALL);
+  }
+
+  /**
+   * Can a shot travel between these points? Cover stops bullets, which is what
+   * makes it worth standing behind.
+   */
+  hasClearShot(x0: number, z0: number, x1: number, z1: number): boolean {
+    return this.trace(x0, z0, x1, z1, (cx, cz) => this.isSolid(cx, cz));
+  }
+
+  /**
+   * Amanatides-Woo grid traversal. Walks the cells a ray passes through and
+   * stops at the first one `blocks` rejects.
+   */
+  private trace(
+    x0: number,
+    z0: number,
+    x1: number,
+    z1: number,
+    blocks: (cx: number, cz: number) => boolean,
+  ): boolean {
     const t = this.tile;
     let cx = this.cellX(x0);
     let cz = this.cellZ(z0);
@@ -165,7 +186,7 @@ export class Grid {
     // Bounded so a degenerate ray can't spin forever.
     const maxSteps = this.cols + this.rows;
     for (let i = 0; i < maxSteps; i++) {
-      if (this.isSolid(cx, cz)) return false;
+      if (blocks(cx, cz)) return false;
       if (cx === endX && cz === endZ) return true;
       if (tMaxX < tMaxZ) {
         tMaxX += tDeltaX;
