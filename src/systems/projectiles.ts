@@ -47,8 +47,11 @@ export class ProjectilePool {
   private cursor = 0;
 
   constructor(scene: Scene) {
-    const geometry = new BoxGeometry(0.34, 0.16, 0.16);
-    const material = new MeshBasicMaterial({ vertexColors: true });
+    const geometry = new BoxGeometry(0.44, 0.18, 0.18);
+    // NOT vertexColors — that flag makes the shader read a per-vertex `color`
+    // attribute this geometry doesn't have, so every instance came out black.
+    // Instance colours from setColorAt are picked up on their own.
+    const material = new MeshBasicMaterial({ toneMapped: false });
     this.mesh = new InstancedMesh(geometry, material, CAPACITY);
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.mesh.frustumCulled = false;

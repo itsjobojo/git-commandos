@@ -4,8 +4,17 @@ import { PALETTE } from '../../render/palette';
 
 const DRIFT_SPEED = 2.1;
 const PREFERRED_RANGE = 13;
-const FAN_INTERVAL = 1.5;
-const SPIRAL_INTERVAL = 0.11;
+/**
+ * Fire rates are deliberately restrained. The first pass put ~27 invites a
+ * second in the air with 4s lifetimes, which filled the screen and stopped
+ * reading as individual dodgeable threats — a wall of noise is not a bullet
+ * hell, it's a fog.
+ */
+const FAN_INTERVAL = 2.4;
+const FAN_COUNT = 7;
+const SPIRAL_INTERVAL = 0.24;
+const SPIRAL_ARMS = 2;
+const INVITE_LIFE = 2.6;
 
 /**
  * The Outlook Invite Swarm — mid-game mini-boss.
@@ -94,37 +103,38 @@ export class OutlookSwarm extends Enemy {
   /** A wall of invites you can dodge-roll through. */
   private fireFan(ctx: EnemyContext, dirX: number, dirZ: number): void {
     const base = Math.atan2(dirZ, dirX);
-    const count = 9;
-    const spread = 0.85;
-    for (let i = 0; i < count; i++) {
-      const angle = base + ((i / (count - 1)) - 0.5) * spread;
+    const spread = 0.8;
+    for (let i = 0; i < FAN_COUNT; i++) {
+      const angle = base + (i / (FAN_COUNT - 1) - 0.5) * spread;
       ctx.fire({
         x: this.x,
         z: this.z,
         dirX: Math.cos(angle),
         dirZ: Math.sin(angle),
-        speed: 9.5,
+        speed: 11,
         damage: 1,
-        life: 3.2,
+        life: INVITE_LIFE,
         radius: 0.28,
-        homing: 1.6,
+        // Gentle enough that a dodge-roll still beats it — homing should make
+        // invites feel persistent, not inescapable.
+        homing: 1.1,
       });
     }
   }
 
   /** Phase 2. Subject line: "Recurring". It does not stop. */
   private fireSpiral(ctx: EnemyContext): void {
-    this.spiralAngle += 0.55;
-    for (let arm = 0; arm < 3; arm++) {
-      const angle = this.spiralAngle + (arm * Math.PI * 2) / 3;
+    this.spiralAngle += 0.7;
+    for (let arm = 0; arm < SPIRAL_ARMS; arm++) {
+      const angle = this.spiralAngle + (arm * Math.PI * 2) / SPIRAL_ARMS;
       ctx.fire({
         x: this.x,
         z: this.z,
         dirX: Math.cos(angle),
         dirZ: Math.sin(angle),
-        speed: 8,
+        speed: 9,
         damage: 1,
-        life: 4,
+        life: INVITE_LIFE,
         radius: 0.26,
       });
     }

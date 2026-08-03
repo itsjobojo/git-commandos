@@ -450,6 +450,13 @@ export class Game {
       else if (enemy instanceof MeetingOrganizer) enemy.syncOrganizer(alpha);
       else if (enemy instanceof Recruiter) enemy.syncRecruiter(alpha);
       else enemy.syncObject(alpha, 0);
+
+      // The death animation owns the scale while dying; don't fight it.
+      if (!enemy.dying && enemy.hitFlash > 0) {
+        enemy.group.scale.setScalar(enemy.hitScale);
+      } else if (!enemy.dying) {
+        enemy.group.scale.setScalar(1);
+      }
     }
   }
 

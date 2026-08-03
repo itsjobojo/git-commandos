@@ -56,6 +56,11 @@ export class CombatSystem {
 
     for (const enemy of this.enemies) {
       if (enemy.dying) continue;
+      // Without this the renderer interpolates from wherever the enemy spawned
+      // to where it is now, every frame — so it appears in two places at once
+      // AND your shots miss, because the hitbox is nowhere near the ghost you
+      // were aiming at.
+      enemy.savePrevious();
       enemy.think(dt, ctx);
     }
 

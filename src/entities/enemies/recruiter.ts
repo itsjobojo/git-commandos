@@ -83,9 +83,12 @@ export class Recruiter extends Enemy {
     const dz = ctx.playerZ - this.z;
     const distance = Math.hypot(dx, dz) || 1;
 
+    // Only shoot from inside the visible frame. Fire from further out and the
+    // shots appear to come from nothing, which reads as a bug rather than a
+    // threat you failed to spot.
     if (
       this.shotTimer <= 0 &&
-      distance < 16 &&
+      distance < 11 &&
       ctx.grid.hasClearShot(this.x, this.z, ctx.playerX, ctx.playerZ)
     ) {
       ctx.fire({

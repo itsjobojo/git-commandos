@@ -39,6 +39,8 @@ export interface EnemyContext {
   shake(amount: number): void;
 }
 
+const HIT_FLASH_SECONDS = 0.16;
+
 export abstract class Enemy extends Entity {
   hp = 3;
   maxHp = 3;
@@ -47,6 +49,12 @@ export abstract class Enemy extends Entity {
   /** Set on death so the world can drop effects before removal. */
   dying = false;
   deathTimer = 0;
+  /**
+   * Counts down after a hit lands. Drives a scale pop — without some feedback
+   * there is no way to tell a shot connected, which reads as "enemies don't
+   * take damage" even when they do.
+   */
+  hitFlash = 0;
 
   abstract readonly group: Group;
 
@@ -55,12 +63,19 @@ export abstract class Enemy extends Entity {
 
   tick(dt: number): void {
     if (this.touchCooldown > 0) this.touchCooldown -= dt;
+    if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
+  }
+
+  /** Scale multiplier for the hit pop. 1 when idle. */
+  get hitScale(): number {
+    return 1 + Math.sin((this.hitFlash / HIT_FLASH_SECONDS) * Math.PI) * 0.22;
   }
 
   /** @returns true if this killed it. */
   damage(amount: number): boolean {
     if (this.dying) return false;
     this.hp -= amount;
+    this.hitFlash = HIT_FLASH_SECONDS;
     if (this.hp <= 0) {
       this.dying = true;
       this.deathTimer = 0.32;

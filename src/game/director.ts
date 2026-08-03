@@ -10,7 +10,11 @@ import type { Grid } from '../world/grid';
 
 /** Don't spawn anything closer to the player than this. */
 const MIN_SPAWN_DISTANCE = 22;
-const MAX_LIVE_ENEMIES = 18;
+/**
+ * Kept low on purpose. Past roughly a dozen the screen stops reading as
+ * distinct threats you can plan around and becomes undifferentiated noise.
+ */
+const MAX_LIVE_ENEMIES = 12;
 
 export interface DirectorContext {
   playerX: number;
@@ -67,8 +71,8 @@ export class Director {
     this.combat.add(recruiter, this.scene);
 
     // The more you're carrying, the more interest you attract.
-    const pressure = 1 + ctx.carrying * 0.35 + this.intensity * 0.5;
-    this.recruiterTimer = this.rng.range(7, 12) / pressure;
+    const pressure = 1 + ctx.carrying * 0.25 + this.intensity * 0.4;
+    this.recruiterTimer = this.rng.range(10, 16) / pressure;
   }
 
   private updateOrganizer(ctx: DirectorContext): void {
