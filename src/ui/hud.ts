@@ -11,6 +11,9 @@ export interface HudState {
   carrying: number;
   /** 1 = unencumbered. Surfaced so the slowdown is legible, not mysterious. */
   loadFactor: number;
+  weapon: string;
+  /** null when the held weapon never runs out. */
+  ammo: number | null;
   /** null unless the death rule is `health`. */
   hp: number | null;
   maxHp: number;
@@ -244,6 +247,7 @@ export class Hud {
 
     const slowdown = Math.round((1 - state.loadFactor) * 100);
     const bits = [
+      `${state.weapon.toLowerCase()} ${state.ammo === null ? '∞' : state.ammo}`,
       `beacon ${state.distanceToPad.toFixed(0)}m`,
       `carrying ${state.carrying}${slowdown > 0 ? ` (−${slowdown}% speed)` : ''}`,
     ];

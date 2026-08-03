@@ -27,6 +27,15 @@ const SPAWN_INTERNS = false;
  * noise; the threat only lands if there's a lull to break.
  */
 const LULL_SECONDS = 7;
+/**
+ * How long the opening stays quiet, and how long the ramp to full pressure
+ * takes. You need room at the start to find your footing, learn the route and
+ * pick up the machine gun before anything serious happens — dropping you
+ * straight into the deep end just makes the first thirty seconds the hardest
+ * part of the run.
+ */
+const GRACE_SECONDS = 14;
+const RAMP_SECONDS = 75;
 /** Hard ceiling per run — see updateStampede. */
 const MAX_STAMPEDES = 2;
 
@@ -53,7 +62,7 @@ export interface DirectorContext {
  * moment, which is the point.
  */
 export class Director {
-  private recruiterTimer = 6;
+  private recruiterTimer = 16;
   private internTimer = 16;
   private organizerSpawned = false;
   private swarmSpawned = false;
@@ -61,7 +70,7 @@ export class Director {
   private midRunStampedeDone = false;
   private extractionStampedeDone = false;
   /** Seconds until the one mid-route stampede. */
-  private stampedeTimer = 48;
+  private stampedeTimer = 62;
   private quietUntil = 0;
   private elapsed = 0;
 
@@ -80,7 +89,16 @@ export class Director {
 
   /** True while the map is deliberately quiet after a big moment. */
   private get lulling(): boolean {
-    return this.elapsed < this.quietUntil;
+    return this.elapsed < this.quietUntil || this.elapsed < GRACE_SECONDS;
+  }
+
+  /**
+   * 1 at the start, falling toward 0 as the run goes on. Spawn intervals are
+   * multiplied by it, so early waves are far apart and the map only reaches
+   * full pressure once you're properly under way.
+   */
+  private get earlyRelief(): number {
+    return 1 + 1.6 * (1 - Math.min(1, this.elapsed / RAMP_SECONDS));
   }
 
   update(dt: number, ctx: DirectorContext): void {
@@ -106,7 +124,7 @@ export class Director {
 
     // The more you're carrying, the more interest you attract.
     const pressure = 1 + ctx.carrying * 0.2 + this.intensity * 0.35;
-    this.recruiterTimer = this.rng.range(16, 26) / pressure;
+    this.recruiterTimer = (this.rng.range(16, 26) / pressure) * this.earlyRelief;
   }
 
   /**
@@ -127,11 +145,11 @@ export class Director {
       this.grid.resolveCircle(intern, intern.radius);
       this.combat.add(intern, this.scene);
     }
-    this.internTimer = this.rng.range(14, 22) / (1 + this.intensity * 0.5);
+    this.internTimer = (this.rng.range(14, 22) / (1 + this.intensity * 0.5)) * this.earlyRelief;
   }
 
   private updateOrganizer(ctx: DirectorContext): void {
-    if (this.organizerSpawned || this.elapsed < 28) return;
+    if (this.organizerSpawned || this.elapsed < 45) return;
     this.organizerSpawned = true;
     const organizer = new MeetingOrganizer();
     const spot = this.spawnPoint(ctx);
@@ -143,7 +161,7 @@ export class Director {
   /** Mid-game: once you're actually committed to the haul. */
   private updateInviteSwarm(ctx: DirectorContext): void {
     if (this.swarmSpawned) return;
-    if (this.elapsed < 65) return;
+    if (this.elapsed < 85) return;
     this.swarmSpawned = true;
     const boss = new InviteSwarm();
     const spot = this.spawnPoint(ctx);
@@ -259,7 +277,7 @@ export class Director {
           );
         }
       }
-      enemy.resetSchedule(this.rng.range(18, 28));
+      enemy.resetSchedule(this.rng.range(18, 28) * this.earlyRelief);
     }
   }
 

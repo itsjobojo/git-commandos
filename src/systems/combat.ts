@@ -4,21 +4,14 @@ import { Enemy, type EnemyContext } from '../entities/enemies/enemy';
 import { AiBro } from '../entities/enemies/ai-bro';
 import type { Player } from '../entities/player';
 import type { Grid } from '../world/grid';
-
-/** Player weapon. One gun for now; pickups are a later milestone. */
-export const WEAPON = {
-  fireInterval: 0.12,
-  speed: 34,
-  damage: 1,
-  spread: 0.045,
-  /** Pushes you back slightly, which also sells the shot. */
-  recoil: 1.2,
-} as const;
+import type { Loadout } from './weapons';
 
 export interface CombatEvents {
   onEnemyKilled?: (enemy: Enemy) => void;
   onPlayerHit?: () => boolean;
   shake?: (amount: number) => void;
+  /** The held weapon just ran dry and dropped back to the sidearm. */
+  onOutOfAmmo?: () => void;
 }
 
 /**
@@ -37,6 +30,7 @@ export class CombatSystem {
   constructor(
     scene: Scene,
     private readonly grid: Grid,
+    private readonly loadout: Loadout,
     private readonly events: CombatEvents = {},
   ) {
     this.projectiles = new ProjectilePool(scene);
@@ -132,19 +126,31 @@ export class CombatSystem {
     // No shooting mid-roll — the dodge has to cost you something.
     if (!firing || player.isRolling || this.fireCooldown > 0) return;
 
-    const angle = player.yaw + (Math.random() * 2 - 1) * WEAPON.spread;
-    this.projectiles.spawn({
-      x: player.x + Math.cos(player.yaw) * 0.8,
-      z: player.z + Math.sin(player.yaw) * 0.8,
-      dirX: Math.cos(angle),
-      dirZ: Math.sin(angle),
-      speed: WEAPON.speed,
-      damage: WEAPON.damage,
-      faction: Faction.Player,
-    });
-    player.vx -= Math.cos(player.yaw) * WEAPON.recoil;
-    player.vz -= Math.sin(player.yaw) * WEAPON.recoil;
-    this.fireCooldown = WEAPON.fireInterval;
+    const weapon = this.loadout.weapon;
+    const muzzleX = player.x + Math.cos(player.yaw) * 0.8;
+    const muzzleZ = player.z + Math.sin(player.yaw) * 0.8;
+
+    for (let pellet = 0; pellet < weapon.pellets; pellet++) {
+      const angle = player.yaw + (Math.random() * 2 - 1) * weapon.spread;
+      this.projectiles.spawn({
+        x: muzzleX,
+        z: muzzleZ,
+        dirX: Math.cos(angle),
+        dirZ: Math.sin(angle),
+        speed: weapon.speed * (0.9 + Math.random() * 0.2),
+        damage: weapon.damage,
+        faction: Faction.Player,
+      });
+    }
+
+    player.vx -= Math.cos(player.yaw) * weapon.recoil;
+    player.vz -= Math.sin(player.yaw) * weapon.recoil;
+    if (weapon.recoil > 3) this.events.shake?.(0.14);
+    this.fireCooldown = weapon.fireInterval;
+
+    // Ammo is spent per trigger pull, not per pellet — a shotgun shell is one
+    // shell however many pellets come out of it.
+    if (this.loadout.spendRound()) this.events.onOutOfAmmo?.();
   }
 
   /** AI bros push rather than shoot — apply and clear their impulse. */

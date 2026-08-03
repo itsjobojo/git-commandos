@@ -8,6 +8,8 @@ import {
   Object3D,
 } from 'three';
 import { Entity, angleDelta } from './entity';
+import { createWeaponModel } from '../render/weapon-models';
+import type { WeaponId } from '../systems/weapons';
 import { PALETTE } from '../render/palette';
 import type { Grid } from '../world/grid';
 import type { Intent } from '../core/input';
@@ -63,7 +65,8 @@ export class Player extends Entity {
 
   readonly cargoAnchor = new Object3D();
   private readonly body: Mesh;
-  private readonly barrel: Mesh;
+  private readonly weaponMount = new Object3D();
+  private weaponModel: Group | null = null;
   private readonly root = new Group();
 
   constructor(private readonly grid: Grid) {
@@ -92,8 +95,8 @@ export class Player extends Entity {
     const visor = new Mesh(new BoxGeometry(0.5, 0.16, 0.24), dark);
     visor.position.set(0.22, 1.22, 0);
 
-    this.barrel = new Mesh(new BoxGeometry(0.8, 0.14, 0.14), dark);
-    this.barrel.position.set(0.62, 0.92, 0.16);
+    // Weapons hang off a mount so swapping one is a model swap, not a rebuild.
+    this.weaponMount.position.set(0.5, 0.92, 0.16);
 
     // A ground-hugging cone that always points where you're facing. Cheap, but
     // it's the single biggest readability win on a top-down camera.
@@ -106,8 +109,19 @@ export class Player extends Entity {
     // looking at yourself.
     this.cargoAnchor.position.set(-0.72, 1.05, 0);
 
-    this.root.add(this.body, visor, this.barrel, chevron, this.cargoAnchor);
+    this.root.add(this.body, visor, this.weaponMount, chevron, this.cargoAnchor);
+    this.setWeapon('pistol');
     this.object = this.root;
+  }
+
+  /** Swap the held model. */
+  setWeapon(id: WeaponId): void {
+    if (this.weaponModel) this.weaponMount.remove(this.weaponModel);
+    this.weaponModel = createWeaponModel(id);
+    // Held smaller than the pickup version — at full size a shotgun reads as
+    // a cannon strapped to someone the size of a fire hydrant.
+    this.weaponModel.scale.setScalar(0.78);
+    this.weaponMount.add(this.weaponModel);
   }
 
   get isRolling(): boolean {
@@ -216,7 +230,8 @@ export class Player extends Entity {
     const squash = 1 - Math.sin(rollT * Math.PI) * 0.42;
     this.body.scale.set(1 / squash, squash, 1 / squash);
     this.body.position.y = 0.86 * squash;
-    this.barrel.visible = !this.isRolling;
+    // Tucked away mid-roll, which is also when you can't shoot.
+    this.weaponMount.visible = !this.isRolling;
   }
 }
 

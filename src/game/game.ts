@@ -19,6 +19,8 @@ import { CombatSystem } from '../systems/combat';
 import { Faction } from '../systems/projectiles';
 import { MEETING_SLOW, SHELTER_GRACE, MeetingSystem } from '../systems/meetings';
 import { BLAST_RADIUS, BombSystem } from '../systems/bombs';
+import { PickupSystem } from '../systems/pickups';
+import { Loadout, WEAPONS, type WeaponId } from '../systems/weapons';
 import { showInvite } from '../ui/invite-modal';
 import { Director } from './director';
 import { AiBro } from '../entities/enemies/ai-bro';
@@ -71,6 +73,8 @@ export class Game {
   private readonly combat: CombatSystem;
   private readonly meetings: MeetingSystem;
   private readonly bombs: BombSystem;
+  private readonly pickups: PickupSystem;
+  private readonly loadout = new Loadout();
   private readonly director: Director;
   /** Dismisses an open invite, if one is up. */
   private closeInvite: (() => void) | null = null;
@@ -137,14 +141,20 @@ export class Game {
       },
     );
 
-    this.combat = new CombatSystem(this.scene, this.map.grid, {
+    this.combat = new CombatSystem(this.scene, this.map.grid, this.loadout, {
       onEnemyKilled: (enemy) => this.onEnemyKilled(enemy),
       onPlayerHit: () => {
         this.takeHit();
         return true;
       },
       shake: (amount) => this.rig.addTrauma(amount),
+      onOutOfAmmo: () => {
+        this.player.setWeapon('pistol');
+        this.hud.flash('OUT OF AMMO — SIDEARM', 'warn');
+      },
     });
+    this.pickups = new PickupSystem(this.scene, (id) => this.onWeaponCollected(id));
+    this.placeWeapons();
     this.meetings = new MeetingSystem(this.scene);
     this.bombs = new BombSystem(this.scene, (x, z) => this.onBombDetonated(x, z));
     this.director = new Director(
@@ -229,6 +239,7 @@ export class Game {
 
     this.combat.update(dt, this.player, this.enemyContext(), intent.fire, this.scene);
     this.bombs.update(dt, Time.real);
+    this.pickups.update(dt, Time.real, this.player.x, this.player.z);
     this.meetings.update(dt, this.player.x, this.player.z, Time.real, {
       onAttended: (m) => this.onAttendedMeeting(m.title),
       onMissed: (m) => this.onMissedMeeting(m.title),
@@ -304,6 +315,28 @@ export class Game {
    * your position, so saying yes to the invite genuinely obliges you to go and
    * stand in it.
    */
+  /**
+   * Upgrades sit on the route, not hidden off it — an upgrade should be
+   * something you see ahead and walk to. The machine gun lands early so the
+   * slow sidearm is a starting point rather than the whole game; the shotgun
+   * sits later, nearer the beacon, where the fights get close.
+   */
+  private placeWeapons(): void {
+    const route = this.map.waypoints;
+    if (route.length < 3) return;
+    const early = route[Math.max(1, Math.floor(route.length * 0.3))];
+    const late = route[Math.min(route.length - 2, Math.floor(route.length * 0.7))];
+    this.pickups.place('smg', early);
+    this.pickups.place('shotgun', late);
+  }
+
+  private onWeaponCollected(id: WeaponId): void {
+    this.loadout.equip(id);
+    this.player.setWeapon(id);
+    const spec = WEAPONS[id];
+    this.hud.announce(spec.name.toUpperCase(), `${spec.ammo ?? '∞'} rounds`, 'good');
+  }
+
   private onBombDetonated(x: number, z: number): void {
     if (this.state !== 'playing') return;
 
@@ -449,6 +482,8 @@ export class Game {
       secondsRemaining: this.extraction.secondsRemaining,
       carrying: this.ledger.carriedCount,
       loadFactor: this.player.loadFactor,
+      weapon: this.loadout.weapon.name,
+      ammo: this.loadout.ammo,
       hp: this.mission.rules.death === 'health' ? this.hp : null,
       maxHp: MAX_HP,
       distanceToPad: Math.hypot(
@@ -528,6 +563,7 @@ export class Game {
       `player   ${p.isRolling ? 'ROLL' : p.invulnerable ? 'IFRAME' : 'ok'}`,
       `rules    loss=${r.loss} death=${r.death} stash=${r.stash}`,
       `hp       ${r.death === 'health' ? `${this.hp}/${MAX_HP}` : 'n/a'}`,
+      `weapon   ${this.loadout.weapon.name} ${this.loadout.ammo ?? '∞'}`,
       `cargo    ${this.ledger.carriedCount} carried · ${this.ledger.dropped.length} dropped · ${this.ledger.stashed.length} stashed · ${this.ledger.lost.length} lost`,
       `hold     ${(this.extraction.progress * 100).toFixed(0)}%`,
       `enemies  ${this.combat.liveEnemies} · ${this.combat.projectiles.activeCount} shots · ${this.meetings.meetings.length} meetings`,
