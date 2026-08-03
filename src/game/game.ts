@@ -15,6 +15,15 @@ import { Player } from '../entities/player';
 import { Extraction } from '../systems/extraction';
 import { CargoLedger } from '../systems/cargo-ledger';
 import { CarrySystem } from '../systems/carry';
+import { CombatSystem } from '../systems/combat';
+import { Faction } from '../systems/projectiles';
+import { MEETING_SLOW, MeetingSystem } from '../systems/meetings';
+import { Director } from './director';
+import { AiBro } from '../entities/enemies/ai-bro';
+import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
+import { OutlookSwarm } from '../entities/enemies/outlook';
+import { Recruiter } from '../entities/enemies/recruiter';
+import type { Enemy, EnemyContext } from '../entities/enemies/enemy';
 import { DebugOverlay } from '../ui/debug';
 import { Hud } from '../ui/hud';
 import { showBriefing } from '../ui/briefing';
@@ -56,6 +65,9 @@ export class Game {
   private readonly extraction: Extraction;
   private readonly ledger: CargoLedger;
   private readonly carry: CarrySystem;
+  private readonly combat: CombatSystem;
+  private readonly meetings: MeetingSystem;
+  private readonly director: Director;
 
   private state: State = 'briefing';
   private hp = MAX_HP;
@@ -112,6 +124,25 @@ export class Game {
         onPickup: (record) => this.hud.flash(`SECURED ${basename(record.name)}`, 'good'),
         onStash: (record) => this.hud.flash(`STASHED ${basename(record.name)}`, 'info'),
       },
+    );
+
+    this.combat = new CombatSystem(this.scene, this.map.grid, {
+      onEnemyKilled: (enemy) => this.onEnemyKilled(enemy),
+      onPlayerHit: () => {
+        this.takeHit();
+        return true;
+      },
+      shake: (amount) => this.rig.addTrauma(amount),
+    });
+    this.meetings = new MeetingSystem(this.scene);
+    this.director = new Director(
+      this.scene,
+      this.combat,
+      this.meetings,
+      this.map.grid,
+      this.rng,
+      // A bigger diff is a busier map, on top of being a longer one.
+      Math.min(1, mission.linesAdded / 400),
     );
 
     this.reticle = createReticle();
@@ -199,13 +230,31 @@ export class Game {
 
     this.updateAim(intent.usingGamepad, intent.stickAimX, intent.stickAimZ, intent.pointerX, intent.pointerY);
 
+    // Being in a meeting slows you to a crawl and blocks pickups. It is a tax
+    // you choose to pay, not a hazard you always dodge.
+    const detained = this.meetings.isPlayerDetained(this.player.x, this.player.z);
+    this.player.externalSlow = detained ? MEETING_SLOW : 1;
+
     this.player.savePrevious();
     this.player.intent = intent;
     this.player.aimX = this.aim.x;
     this.player.aimZ = this.aim.z;
     this.player.tick(dt);
 
-    this.carry.update(dt, this.player, intent);
+    if (!detained) this.carry.update(dt, this.player, intent);
+
+    this.combat.update(dt, this.player, this.enemyContext(), intent.fire, this.scene);
+    this.meetings.update(dt, this.player.x, this.player.z, Time.real, {
+      onAttended: (m) => this.hud.flash(`ATTENDED ${m.title}`, 'info'),
+      onMissed: (m) => this.onMissedMeeting(m.title),
+    });
+    this.director.update(dt, {
+      playerX: this.player.x,
+      playerZ: this.player.z,
+      extractionProgress: this.extraction.progress,
+      extracting: this.extraction.progress > 0,
+      carrying: this.ledger.carriedCount,
+    });
 
     if (this.extraction.update(dt, this.player.x, this.player.z)) {
       this.finish('win');
@@ -213,6 +262,44 @@ export class Game {
 
     this.input.consumeEdges();
   };
+
+  private enemyContext(): EnemyContext {
+    return {
+      playerX: this.player.x,
+      playerZ: this.player.z,
+      playerCarrying: this.ledger.carriedCount,
+      grid: this.map.grid,
+      rng: this.rng,
+      time: Time.real,
+      extracting: this.extraction.progress > 0,
+      fire: (opts) => this.combat.projectiles.spawn({ ...opts, faction: Faction.Enemy }),
+      hitPlayer: () => {
+        if (this.player.invulnerable) return false;
+        this.takeHit();
+        return true;
+      },
+      shake: (amount) => this.rig.addTrauma(amount),
+    };
+  }
+
+  private onEnemyKilled(enemy: Enemy): void {
+    // Killing one bro makes the rest speed up. "He's just early."
+    if (enemy instanceof AiBro) {
+      for (const other of this.combat.enemies) {
+        if (other instanceof AiBro && !other.dying) other.rally();
+      }
+      return;
+    }
+    if (enemy instanceof OutlookSwarm) this.hud.flash('INVITE SERIES CANCELLED', 'good');
+    if (enemy instanceof MeetingOrganizer) this.hud.flash('NO FURTHER MEETINGS SCHEDULED', 'good');
+  }
+
+  /** Missing a mandatory meeting costs you a crate. */
+  private onMissedMeeting(title: string): void {
+    this.hud.flash(`MISSED ${title}`, 'bad');
+    const dropped = this.carry.knockLoose(this.player);
+    if (!dropped) this.rig.addTrauma(0.2);
+  }
 
   /**
    * A hit landing. The death rule decides whether losing cargo is the only
@@ -300,6 +387,8 @@ export class Game {
   private render = (alpha: number, realDt: number): void => {
     this.player.syncObject(alpha);
     this.carry.syncVisuals(alpha);
+    this.syncEnemies(alpha);
+    this.combat.projectiles.sync();
     this.renderPos.copy(this.player.object!.position);
 
     // The camera runs on real time, not simulation time — it must keep moving
@@ -349,6 +438,21 @@ export class Game {
     return () => window.removeEventListener('keydown', onKey);
   }
 
+  /**
+   * Each archetype has its own sync because each animates differently — the
+   * bro jogs, the boss hovers, the organizer spins its calendar. Dispatching
+   * on type here keeps that animation code next to the behaviour it belongs to.
+   */
+  private syncEnemies(alpha: number): void {
+    for (const enemy of this.combat.enemies) {
+      if (enemy instanceof AiBro) enemy.syncBro(alpha);
+      else if (enemy instanceof OutlookSwarm) enemy.syncOutlook(alpha);
+      else if (enemy instanceof MeetingOrganizer) enemy.syncOrganizer(alpha);
+      else if (enemy instanceof Recruiter) enemy.syncRecruiter(alpha);
+      else enemy.syncObject(alpha, 0);
+    }
+  }
+
   private debugText(): string {
     const p = this.player;
     const r = this.mission.rules;
@@ -361,9 +465,10 @@ export class Game {
       `hp       ${r.death === 'health' ? `${this.hp}/${MAX_HP}` : 'n/a'}`,
       `cargo    ${this.ledger.carriedCount} carried · ${this.ledger.dropped.length} dropped · ${this.ledger.stashed.length} stashed · ${this.ledger.lost.length} lost`,
       `hold     ${(this.extraction.progress * 100).toFixed(0)}%`,
+      `enemies  ${this.combat.liveEnemies} · ${this.combat.projectiles.activeCount} shots · ${this.meetings.meetings.length} meetings`,
       `draws    ${this.renderer.info.render.calls}`,
       '',
-      'WASD move · space dodge · Q drop · E stash · F1 take a hit · F2 fail',
+      'WASD move · LMB fire · space dodge · Q drop · E stash · F1 hit · F2 fail',
     ].join('\n');
   }
 }

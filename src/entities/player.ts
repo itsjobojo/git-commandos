@@ -41,8 +41,13 @@ export class Player extends Entity {
   intent: Intent | null = null;
   aimX = 0;
   aimZ = 0;
-  /** How many crates are on your back — gates sprint and scales threat. */
+  /** How many crates are on your back — slows you and scales threat. */
   carrying = 0;
+  /**
+   * Speed multiplier imposed from outside — currently meeting rings.
+   * 1 = unaffected.
+   */
+  externalSlow = 1;
 
   rollTimer = 0;
   rollCooldown = 0;
@@ -158,7 +163,7 @@ export class Player extends Entity {
 
   private drive(dt: number, i: Intent): void {
     const wants = i.moveX !== 0 || i.moveZ !== 0;
-    const max = (i.sprint ? SPRINT_SPEED : BASE_SPEED) * this.loadFactor;
+    const max = (i.sprint ? SPRINT_SPEED : BASE_SPEED) * this.loadFactor * this.externalSlow;
     const rate = (wants ? ACCEL : FRICTION) * dt;
     this.vx = moveToward(this.vx, i.moveX * max, rate);
     this.vz = moveToward(this.vz, i.moveZ * max, rate);
