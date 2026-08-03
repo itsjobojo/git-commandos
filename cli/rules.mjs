@@ -21,8 +21,8 @@ export const RULE_OPTIONS = {
     values: ['run', 'persist', 'off'],
     default: 'run',
     describe: {
-      run: 'the stash cache protects cargo from death, within this run only',
-      persist: 'cargo left in the stash stays staged for your next run',
+      run: 'a safe deposit — stashed cargo ships with the commit if you make it out',
+      persist: 'stashed cargo is held out of this commit and stays staged for next run',
       off: 'no stash cache',
     },
   },
