@@ -87,6 +87,8 @@ export interface DoorPortal {
   entryRow: number; entryCol: number;   // where the player lands on the body
   exitRow: number; exitCol: number;     // exit hole on the body (near the top)
   fieldRow: number; fieldCol: number;   // road tile to drop to when exiting
+  bodyTile: Tile;                       // original body tile under the door (to restore on use)
+  used?: boolean;                       // once you exit the hole, the door is spent — no re-entry
 }
 
 function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay: (Tile | null)[][]; solid: boolean[][]; doorPortals: DoorPortal[] } {
@@ -168,6 +170,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
             && entryRow < totalRows && exitRow < totalRows && fieldCol < COLS
             && isBuildingBodyTile(grid[entryRow][col]) && isBuildingBodyTile(grid[exitRow][col])
             && !isSolidTile(grid[exitRow][fieldCol])) {
+          const bodyTile: Tile = [...grid[doorRow][col]];
           grid[doorRow][col] = [...DOOR_TILE];
           if (doorRow + 1 < totalRows) grid[doorRow + 1][col] = [...SAND];
           doorPortals.push({
@@ -175,6 +178,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
             entryRow, entryCol: col,
             exitRow, exitCol: col,
             fieldRow: exitRow, fieldCol,
+            bodyTile,
           });
         }
       }
@@ -223,6 +227,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
             && entryRow < totalRows && exitRow < totalRows && fieldCol >= 0
             && isBuildingBodyTile(grid[entryRow][col]) && isBuildingBodyTile(grid[exitRow][col])
             && !isSolidTile(grid[exitRow][fieldCol])) {
+          const bodyTile: Tile = [...grid[doorRow][col]];
           grid[doorRow][col] = [...DOOR_TILE];
           if (doorRow + 1 < totalRows) grid[doorRow + 1][col] = [...SAND];
           doorPortals.push({
@@ -230,6 +235,7 @@ function generateWorld(totalRows: number, seed = 42): { grid: Tile[][]; overlay:
             entryRow, entryCol: col,
             exitRow, exitCol: col,
             fieldRow: exitRow, fieldCol,
+            bodyTile,
           });
         }
       }
@@ -524,11 +530,21 @@ export function checkDoorInteraction(
   // The door faces the road and its tile is solid, so the player stands adjacent
   // on the road. Accept a small proximity box around the door tile.
   for (const p of WORLD_DOOR_PORTALS) {
+    if (p.used) continue; // spent doors don't accept you again
     if (Math.abs(p.doorCol - playerCol) <= 1 && Math.abs(p.doorRow - playerWorldRow) <= 1) {
       return p;
     }
   }
   return null;
+}
+
+/** Spend a door once the player exits through its hole: it can never be
+ *  re-entered, the door tile reverts to plain building body, and its exit
+ *  hole stops being drawn. */
+export function consumeDoorPortal(portal: DoorPortal): void {
+  portal.used = true;
+  WORLD_PATTERN[portal.doorRow][portal.doorCol] = [...portal.bodyTile];
+  SOLID_MAP[portal.doorRow][portal.doorCol] = isSolidTile(portal.bodyTile);
 }
 
 /** Find screen-Y spans where the left or right edge has building body tiles.
@@ -578,6 +594,7 @@ export function renderWorld(ctx: CanvasRenderingContext2D, scrollY: number): voi
 
     // Draw the exit hole (top). The entrance is the DOOR tile, drawn as a normal tile.
     for (const p of WORLD_DOOR_PORTALS) {
+      if (p.used) continue; // spent portal — hole is gone
       const drawHole = (holeRow: number, holeCol: number) => {
         if (holeRow !== worldRow) return;
         const bx = holeCol * TILE_SIZE + TILE_SIZE / 2;

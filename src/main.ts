@@ -26,5 +26,7 @@ Promise.all([waitForAssets(), connectGitContext(), initMusicPlayer()]).then(([_,
     (dt) => game.update(dt),
     (alpha) => game.render(alpha)
   );
+  // TEMP DEBUG HOOK — remove before commit
+  (window as unknown as Record<string, unknown>).__gc = { game, loop };
   loop.start();
 });

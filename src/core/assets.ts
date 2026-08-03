@@ -50,9 +50,8 @@ export const outlookOrganizerSprite = loadImg('/sprites/enemies/tile_0099.png');
 // Outlook icon for invite objects
 export const outlookIconImg = loadImg('/sprites/outlook.png');
 
-// Bullet and knife sprites
+// Bullet sprite
 export const bulletSprite = loadImg('/sprites/bullet.png');
-export const knifeSprite = loadImg('/sprites/knife.png');
 
 // Weapon sprites (for pickups + HUD)
 export const weaponSprites: Record<string, HTMLImageElement> = {

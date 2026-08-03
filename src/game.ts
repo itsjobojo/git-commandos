@@ -18,7 +18,7 @@ import { playSound, playMusic } from './core/sound';
 import { soldierGunImg, soldierStandImg, drawSoldier, logoImg } from './core/assets';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE } from './constants';
 import { GameState } from './types';
-import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, SCROLL_ROWS_TO_END, findBuildingEdgeSpans, isBuildingBodyAt, checkDoorInteraction, initWorld, type DoorPortal } from './world';
+import { renderWorld, collidesWithWorld, worldRowToScreenY, END_AREA, SCROLL_ROWS_TO_END, findBuildingEdgeSpans, isBuildingBodyAt, checkDoorInteraction, consumeDoorPortal, initWorld, type DoorPortal } from './world';
 import { AnnouncementSystem } from './systems/announcements';
 import { WeaponType, WEAPONS } from './weapons';
 import { GitContext, GitFile } from './git-context';
@@ -55,7 +55,6 @@ export class Game {
   private gameTime = 0;
   private rushHealTimer = 0;
   private meetingSlowTimer = 0;
-  private meleeHitEnemies = new Set<Enemy>();
   private announcements = new AnnouncementSystem();
 
   // Guaranteed boss tracking — each spawns at least once per run
@@ -111,6 +110,8 @@ export class Game {
     p.onMountain = false;
     this.activeMountain = null;
     if (m) {
+      // Spend the door: you exited through the hole, so this door is gone for good.
+      consumeDoorPortal(m);
       p.x = m.fieldCol * 16 + 8 - p.width / 2;
       // Land at the mountain base (door row) — ground level, on the road.
       let gy = worldRowToScreenY(m.doorRow, this.camera.y);
@@ -250,53 +251,6 @@ export class Game {
       if (this.input.fireRight) angle += Math.PI / 4;
       this.playerBullets.push(...this.player.fire(angle));
       playSound('shoot', 0.15);
-    }
-
-    // Melee — dedicated key (X), available regardless of ammo
-    if (this.input.melee && this.player.canMelee()) {
-      this.player.melee();
-      this.meleeHitEnemies.clear();
-      playSound('shoot', 0.1);
-    }
-
-    // Check melee hits
-    if (this.player.meleeTimer > 0) {
-      const meleeBox = this.player.getMeleeBox();
-      if (meleeBox) {
-        for (const enemy of this.enemies) {
-          if (!enemy.active) continue;
-          if (this.meleeHitEnemies.has(enemy)) continue;
-          if (aabb(meleeBox, enemy.getBounds())) {
-            this.meleeHitEnemies.add(enemy);
-            enemy.takeDamage(2);
-            if (!enemy.active) {
-              const pts = enemy.scoreValue * Math.max(1, this.player.streak);
-              this.player.score += pts;
-              this.player.streak++;
-              this.addPopup(String(pts), enemy.x + enemy.width / 2, enemy.y);
-              this.spawnExplosion(enemy.x, enemy.y);
-              playSound('explosion', 0.25);
-              this.maybeDropPickup(enemy.x, enemy.y);
-            }
-          }
-        }
-        for (const bullet of this.enemyBullets) {
-          if (!bullet.active) continue;
-          if (aabb(meleeBox, bullet.getBounds())) {
-            bullet.active = false;
-            this.addPopup('DEFLECT', bullet.x + bullet.width / 2, bullet.y);
-          }
-        }
-        for (const invite of this.outlookInvites) {
-          if (!invite.active) continue;
-          if (aabb(meleeBox, invite.getBounds())) {
-            invite.active = false;
-            this.player.score += 50;
-            this.player.streak++;
-            this.addPopup('50 DECLINED', invite.x + invite.width / 2, invite.y);
-          }
-        }
-      }
     }
 
     if (this.input.revert && this.player.gitRevertCharges > 0) {
@@ -848,7 +802,7 @@ export class Game {
 
   private pickModalKeys(): [string, string] {
     // Pick two random distinct letter keys, avoiding movement/action keys
-    // (I toggles info, X is melee, Q/E veer-fire, Z shoot, C revert).
+    // (I toggles info, Q/E veer-fire, Z shoot, C revert).
     const pool = 'BFGHJKLMNOPRTUVY';
     const i = Math.floor(Math.random() * pool.length);
     let j = Math.floor(Math.random() * (pool.length - 1));
@@ -969,7 +923,6 @@ export class Game {
       ['Shoot up',    'Z / Space'],
       ['Shoot ←',     'Q'],
       ['Shoot →',     'E'],
-      ['Melee stab',  'X  (close range, any time)'],
       ['Git revert',  'C  (clears screen, recovers file)'],
       ['', ''],
       ['Avoid zones', 'Red areas — slows you down'],
