@@ -102,6 +102,22 @@ export class Loadout {
     this.rounds = WEAPONS[id].ammo ?? 0;
   }
 
+  /**
+   * Loose ammo. Topping up what you're already holding is the common case;
+   * finding shells for something you don't have hands you the weapon with that
+   * partial load, so a drop is never a dead pickup.
+   */
+  addAmmo(id: WeaponId, rounds: number): void {
+    const max = WEAPONS[id].ammo;
+    if (max === null) return;
+    if (this.current === id) {
+      this.rounds = Math.min(max, this.rounds + rounds);
+      return;
+    }
+    this.current = id;
+    this.rounds = Math.min(max, rounds);
+  }
+
   /** @returns true if the weapon ran dry on this shot. */
   spendRound(): boolean {
     if (this.weapon.ammo === null) return false;

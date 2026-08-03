@@ -34,8 +34,8 @@ const LULL_SECONDS = 7;
  * straight into the deep end just makes the first thirty seconds the hardest
  * part of the run.
  */
-const GRACE_SECONDS = 14;
-const RAMP_SECONDS = 75;
+const GRACE_SECONDS = 10;
+const RAMP_SECONDS = 55;
 /** Hard ceiling per run — see updateStampede. */
 const MAX_STAMPEDES = 2;
 
@@ -62,7 +62,7 @@ export interface DirectorContext {
  * moment, which is the point.
  */
 export class Director {
-  private recruiterTimer = 16;
+  private recruiterTimer = 11;
   private internTimer = 16;
   private organizerSpawned = false;
   private swarmSpawned = false;
@@ -70,7 +70,7 @@ export class Director {
   private midRunStampedeDone = false;
   private extractionStampedeDone = false;
   /** Seconds until the one mid-route stampede. */
-  private stampedeTimer = 62;
+  private stampedeTimer = 52;
   private quietUntil = 0;
   private elapsed = 0;
 
@@ -98,7 +98,7 @@ export class Director {
    * full pressure once you're properly under way.
    */
   private get earlyRelief(): number {
-    return 1 + 1.6 * (1 - Math.min(1, this.elapsed / RAMP_SECONDS));
+    return 1 + 0.9 * (1 - Math.min(1, this.elapsed / RAMP_SECONDS));
   }
 
   update(dt: number, ctx: DirectorContext): void {
@@ -124,7 +124,7 @@ export class Director {
 
     // The more you're carrying, the more interest you attract.
     const pressure = 1 + ctx.carrying * 0.2 + this.intensity * 0.35;
-    this.recruiterTimer = (this.rng.range(16, 26) / pressure) * this.earlyRelief;
+    this.recruiterTimer = (this.rng.range(11, 18) / pressure) * this.earlyRelief;
   }
 
   /**
@@ -149,7 +149,7 @@ export class Director {
   }
 
   private updateOrganizer(ctx: DirectorContext): void {
-    if (this.organizerSpawned || this.elapsed < 45) return;
+    if (this.organizerSpawned || this.elapsed < 38) return;
     this.organizerSpawned = true;
     const organizer = new MeetingOrganizer();
     const spot = this.spawnPoint(ctx);
@@ -161,7 +161,7 @@ export class Director {
   /** Mid-game: once you're actually committed to the haul. */
   private updateInviteSwarm(ctx: DirectorContext): void {
     if (this.swarmSpawned) return;
-    if (this.elapsed < 85) return;
+    if (this.elapsed < 72) return;
     this.swarmSpawned = true;
     const boss = new InviteSwarm();
     const spot = this.spawnPoint(ctx);

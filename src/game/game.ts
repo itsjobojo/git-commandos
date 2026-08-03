@@ -19,8 +19,8 @@ import { CombatSystem } from '../systems/combat';
 import { Faction } from '../systems/projectiles';
 import { MEETING_SLOW, SHELTER_GRACE, MeetingSystem } from '../systems/meetings';
 import { BLAST_RADIUS, BombSystem } from '../systems/bombs';
-import { PickupSystem } from '../systems/pickups';
-import { Loadout, WEAPONS, type WeaponId } from '../systems/weapons';
+import { PickupSystem, type PickupOffer } from '../systems/pickups';
+import { Loadout, WEAPONS } from '../systems/weapons';
 import { showInvite } from '../ui/invite-modal';
 import { Director } from './director';
 import { AiBro } from '../entities/enemies/ai-bro';
@@ -153,7 +153,7 @@ export class Game {
         this.hud.flash('OUT OF AMMO — SIDEARM', 'warn');
       },
     });
-    this.pickups = new PickupSystem(this.scene, (id) => this.onWeaponCollected(id));
+    this.pickups = new PickupSystem(this.scene, (offer, first) => this.onPickup(offer, first));
     this.placeWeapons();
     this.meetings = new MeetingSystem(this.scene);
     this.bombs = new BombSystem(this.scene, (x, z) => this.onBombDetonated(x, z));
@@ -280,6 +280,8 @@ export class Game {
   }
 
   private onEnemyKilled(enemy: Enemy): void {
+    this.rollDrop(enemy);
+
     // Killing one bro makes the rest speed up. "He's just early."
     if (enemy instanceof AiBro) {
       for (const other of this.combat.enemies) {
@@ -326,15 +328,75 @@ export class Game {
     if (route.length < 3) return;
     const early = route[Math.max(1, Math.floor(route.length * 0.3))];
     const late = route[Math.min(route.length - 2, Math.floor(route.length * 0.7))];
-    this.pickups.place('smg', early);
-    this.pickups.place('shotgun', late);
+    this.pickups.place({ kind: 'weapon', id: 'smg', rounds: 0 }, early, true);
+    this.pickups.place({ kind: 'weapon', id: 'shotgun', rounds: 0 }, late, true);
   }
 
-  private onWeaponCollected(id: WeaponId): void {
-    this.loadout.equip(id);
-    this.player.setWeapon(id);
-    const spec = WEAPONS[id];
-    this.hud.announce(spec.name.toUpperCase(), `${spec.ammo ?? '∞'} rounds`, 'good');
+  /**
+   * @returns false to leave the pickup on the ground.
+   *
+   * Ammo is only collectible if you're actually holding that weapon. Picking
+   * up shotgun shells with no shotgun made no sense — you can see them, you
+   * just can't do anything with them yet, which is its own small incentive to
+   * go and find the gun.
+   */
+  private onPickup(offer: PickupOffer, firstTouch: boolean): boolean {
+    if (offer.kind === 'weapon') {
+      this.loadout.equip(offer.id);
+      this.player.setWeapon(offer.id);
+      const spec = WEAPONS[offer.id];
+      this.hud.announce(spec.name.toUpperCase(), `${spec.ammo ?? '∞'} rounds`, 'good');
+      return true;
+    }
+
+    if (this.loadout.id !== offer.id) {
+      if (firstTouch) {
+        this.hud.flash(`NEED THE ${WEAPONS[offer.id].name.toUpperCase()}`, 'warn');
+      }
+      return false;
+    }
+    if (this.loadout.ammo !== null && this.loadout.ammo >= (this.loadout.maxAmmo ?? 0)) {
+      if (firstTouch) this.hud.flash('AMMO FULL', 'info');
+      return false;
+    }
+
+    this.loadout.addAmmo(offer.id, offer.rounds);
+    this.player.setWeapon(offer.id);
+    this.hud.flash(`+${offer.rounds} ${WEAPONS[offer.id].name.toUpperCase()}`, 'good');
+    return true;
+  }
+
+  /**
+   * What the dead leave behind.
+   *
+   * Deliberately not everyone: loot from every kill turns the floor into a
+   * shop and kills the tension of running dry. Ammo is the common case, a
+   * whole weapon is a treat, and the stampede drops nothing at all — two dozen
+   * drops in one wave would carpet the route.
+   */
+  private rollDrop(enemy: Enemy): void {
+    if (enemy instanceof AiBro) return;
+
+    let chance = 0.3;
+    if (enemy instanceof MeetingOrganizer) chance = 0.6;
+    if (enemy instanceof InviteSwarm) chance = 1;
+    if (this.rng.next() > chance) return;
+
+    const roll = this.rng.next();
+    let offer: PickupOffer;
+    if (enemy instanceof InviteSwarm) {
+      // The boss always pays out properly.
+      offer = { kind: 'weapon', id: 'shotgun', rounds: 0 };
+    } else if (roll < 0.62) {
+      const id = this.rng.next() < 0.6 ? 'smg' : 'shotgun';
+      offer = { kind: 'ammo', id, rounds: id === 'smg' ? 55 : 9 };
+    } else if (roll < 0.88) {
+      offer = { kind: 'weapon', id: 'smg', rounds: 0 };
+    } else {
+      offer = { kind: 'weapon', id: 'shotgun', rounds: 0 };
+    }
+
+    this.pickups.place(offer, { x: enemy.x, z: enemy.z });
   }
 
   private onBombDetonated(x: number, z: number): void {
