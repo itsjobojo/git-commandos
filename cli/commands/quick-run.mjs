@@ -43,9 +43,11 @@ export async function run(args, flags) {
     difficulty,
     music: !flags.noMusic,
     payload: {
-      files: stagedFiles,
+      files: stagedFiles.map((name) => ({ name, added: 20, removed: 0 })),
       commitMessage: 'chore: quick-run test',
       linesAdded: totalLines,
+      branch: 'quick-run',
+      repo: 'sandbox',
       ...(gameRows !== null && { gameRows }),
     },
   };

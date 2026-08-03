@@ -1,4 +1,6 @@
 import { Game } from './game/game';
+import { buildMission } from './game/mission';
+import { connectGitContext } from './net/protocol';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement | null;
 const uiRoot = document.getElementById('ui') as HTMLElement | null;
@@ -7,10 +9,13 @@ if (!canvas || !uiRoot) {
   throw new Error('index.html is missing #game or #ui');
 }
 
-// M2 slots the git handshake in here: connect to the CLI over WebSocket, and
-// seed the mission from the commit message. Until then, sandbox.
-const game = new Game(canvas, uiRoot, { seed: 'sandbox' });
-game.start();
+// Null in `pnpm dev` — no CLI server, so the game runs as a sandbox with fake
+// files and no git side effects.
+const git = await connectGitContext();
+const mission = buildMission(git);
+
+const game = new Game(canvas, uiRoot, mission, git);
+void game.run();
 
 // Handy while iterating; harmless in production.
 (window as unknown as Record<string, unknown>).__game = game;

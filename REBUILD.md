@@ -439,9 +439,9 @@ is the acceptance harness throughout — the game must stay CLI-integrated from 
 
 | # | Milestone | Content | Done when |
 |---|---|---|---|
-| **M0** | Clear the deck | Delete `src/**`, `kenney_*`, `editor.html`. Add `three`. New empty `src/` skeleton + `ASSETS.md`. | `pnpm build` produces an empty scene at 60fps |
-| **M1** | Feel | Fixed-step loop, camera rig, WASD + mouse aim, dodge roll, grid collision, procedural floor. Capsule placeholder. | Moving a capsule around a grey box room already feels good. **Do not proceed until it does.** |
-| **M2** | Wire the git spine | `net/protocol.ts`, briefing screen from real `GitContext`, debrief, `sendResult`. Win = walk to a marked square. | `gcmds fake-files --count=5 && gcmds commit -m test` commits for real |
+| **M0** ✅ | Clear the deck | Delete `src/**`, `kenney_*`, `editor.html`. Add `three`. New empty `src/` skeleton + `ASSETS.md`. | `pnpm build` produces an empty scene at 60fps |
+| **M1** ✅ | Feel | Fixed-step loop, camera rig, WASD + mouse aim, dodge roll, grid collision, procedural floor. Capsule placeholder. | Moving a capsule around a grey box room already feels good. **Do not proceed until it does.** |
+| **M2** ✅ | Wire the git spine | `net/protocol.ts`, briefing screen from real `GitContext`, debrief, `sendResult`. Win = hold the extraction beacon. | `gcmds commit -m test` commits for real |
 | **M3** | Combat | Weapon + instanced projectiles, 2 enemy archetypes, damage, hitstop, death. | Fights are readable from the top-down camera |
 | **M4** | **Cargo** | `systems/carry.ts` in full: pick up, carry stack, drop-on-hit, decay, stash cache, extraction hold. Crates use real filenames. | Taking 2 hits and letting one crate decay unstages exactly that file, and no other |
 | **M5** | Maps | Room chunks, seeded assembly, length from `linesAdded`, crate/enemy distribution. | A 400-line diff is visibly a longer mission than a 10-line one |

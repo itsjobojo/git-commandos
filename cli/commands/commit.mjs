@@ -1,4 +1,5 @@
-import { getStagedFiles, getStagedDiffStats, commitFiles, unstageFiles, deleteFiles } from '../git-ops.mjs';
+import { basename } from 'node:path';
+import { getStagedDiffStats, getBranch, commitFiles, unstageFiles, deleteFiles } from '../git-ops.mjs';
 import { launchGame } from '../server.mjs';
 
 export const description = 'Commit staged files — but you must survive to ship them';
@@ -53,9 +54,14 @@ export async function run(args, flags) {
     difficulty,
     music: !flags.noMusic,
     payload: {
-      files,
+      // Per-file diff stats size each crate in-game and decide how far from
+      // extraction it spawns. The game also accepts a plain string[], so an
+      // older build still works against this CLI.
+      files: stats.files.map((f) => ({ name: f.name, added: f.added, removed: f.removed })),
       commitMessage,
       linesAdded: stats.totalAdded,
+      branch: getBranch(),
+      repo: basename(process.cwd()),
     },
   };
 

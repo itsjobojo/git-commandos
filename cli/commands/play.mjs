@@ -15,9 +15,11 @@ export async function run(args, flags) {
     difficulty,
     music: !flags.noMusic,
     payload: {
-      files: SANDBOX_FILES,
+      files: SANDBOX_FILES.map((name) => ({ name, added: 24, removed: 2 })),
       commitMessage: 'sandbox: dev test run',
       linesAdded: 42,
+      branch: 'sandbox',
+      repo: 'sandbox',
     },
   };
 

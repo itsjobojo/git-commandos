@@ -90,6 +90,12 @@ export function launchGame(config) {
       const port = server.address().port;
       const url = `http://localhost:${port}`;
       console.log(`\n  🎮 Game server running at ${url}\n`);
+      // GCMDS_NO_OPEN lets tests and CI drive the protocol without hijacking
+      // the user's browser.
+      if (process.env.GCMDS_NO_OPEN) {
+        console.log(`  Open ${url} in your browser to play.\n`);
+        return;
+      }
       try {
         const open = (await import('open')).default;
         await open(url);
