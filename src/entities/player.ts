@@ -83,7 +83,10 @@ export class Player extends Entity {
     chevron.rotation.set(Math.PI / 2, 0, -Math.PI / 2);
     chevron.position.set(0.95, 0.08, 0);
 
-    this.cargoAnchor.position.set(-0.36, 0.95, 0);
+    // Sits clear of the body so the stack — and the filenames on it — read
+    // from the top-down camera. You should be able to see your git status by
+    // looking at yourself.
+    this.cargoAnchor.position.set(-0.72, 1.05, 0);
 
     this.root.add(this.body, visor, this.barrel, chevron, this.cargoAnchor);
     this.object = this.root;

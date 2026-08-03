@@ -1,9 +1,10 @@
 import { basename } from 'node:path';
-import { getStagedDiffStats, getBranch, commitFiles, unstageFiles, deleteFiles } from '../git-ops.mjs';
+import { getStagedDiffStats, getBranch, commitFiles, unstageFiles, stageFiles, deleteFiles } from '../git-ops.mjs';
 import { launchGame } from '../server.mjs';
+import { resolveRules, describeRules } from '../rules.mjs';
 
 export const description = 'Commit staged files — but you must survive to ship them';
-export const usage = 'gcmds commit -m "message" [--extreme]';
+export const usage = 'gcmds commit -m "message" [--extreme] [--death=…] [--stash=…]';
 
 export async function run(args, flags) {
   // Parse commit message from -m flag
@@ -21,7 +22,8 @@ export async function run(args, flags) {
     process.exit(1);
   }
 
-  const difficulty = flags.extreme ? 'extreme' : 'basic';
+  const rules = resolveRules(flags);
+  const difficulty = rules.loss === 'delete' ? 'extreme' : 'basic';
 
   // Extreme mode confirmation
   if (difficulty === 'extreme') {
@@ -46,13 +48,15 @@ export async function run(args, flags) {
   console.log(`  Staged files (${files.length}):`);
   for (const f of files) console.log(`    ${f}`);
   console.log(`  Commit message: "${commitMessage}"`);
-  console.log(`  Difficulty: ${difficulty}`);
+  console.log(`  Rules:`);
+  console.log(describeRules(rules));
   console.log(`  Opening game...`);
 
   const config = {
     command: 'commit',
     difficulty,
     music: !flags.noMusic,
+    rules,
     payload: {
       // Per-file diff stats size each crate in-game and decide how far from
       // extraction it spawns. The game also accepts a plain string[], so an
@@ -69,6 +73,9 @@ export async function run(args, flags) {
   const { outcome, payload } = result;
   const surviving = payload?.survivingFiles || [];
   const lost = payload?.lostFiles || [];
+  // Files left in the stash cache under --stash=persist. They are neither
+  // committed nor unstaged — they stay staged for the next run.
+  const stashed = payload?.stashedFiles || [];
 
   console.log('');
 
@@ -77,18 +84,32 @@ export async function run(args, flags) {
     process.exit(0);
   }
 
+  if (lost.length > 0) {
+    if (rules.loss === 'delete') {
+      console.log('  💀 Deleting lost files:');
+      for (const f of lost) console.log(`    rm ${f}`);
+      deleteFiles(lost);
+      unstageFiles(lost);
+    } else {
+      console.log('  📦 Unstaging lost files:');
+      for (const f of lost) console.log(`    git reset HEAD -- ${f}`);
+      unstageFiles(lost);
+    }
+  }
+
   if (outcome === 'win') {
-    if (lost.length > 0) {
-      // Partial win — handle lost files before committing
-      if (difficulty === 'extreme') {
-        console.log('  💀 Deleting lost files:');
-        for (const f of lost) console.log(`    rm ${f}`);
-        deleteFiles(lost);
-      } else {
-        console.log('  📦 Unstaging lost files:');
-        for (const f of lost) console.log(`    git reset HEAD -- ${f}`);
-        unstageFiles(lost);
-      }
+    // Stashed files must not ride along in the commit, but must still be
+    // staged afterwards — so drop them from the index, commit, and re-add.
+    if (stashed.length > 0) {
+      console.log('  🗄  Holding stashed files back from this commit:');
+      for (const f of stashed) console.log(`    ${f}`);
+      unstageFiles(stashed);
+    }
+
+    if (surviving.length === 0) {
+      console.log('  Nothing reached the extraction point. No commit made.');
+      if (stashed.length > 0) stageFiles(stashed);
+      process.exit(1);
     }
 
     try {
@@ -96,21 +117,20 @@ export async function run(args, flags) {
       console.log(`  ✅ Committed ${surviving.length} file(s): "${commitMessage}"`);
     } catch (err) {
       console.error(`  ❌ Commit failed: ${err.message}`);
+      if (stashed.length > 0) stageFiles(stashed);
       process.exit(1);
     }
-  } else {
-    // Loss
-    if (difficulty === 'extreme') {
-      console.log('  💀 GAME OVER — Deleting all staged files:');
-      for (const f of lost) console.log(`    rm ${f}`);
-      deleteFiles(lost);
-      unstageFiles(lost);
-    } else {
-      console.log('  💀 GAME OVER — Unstaging all files:');
-      for (const f of lost) console.log(`    git reset HEAD -- ${f}`);
-      unstageFiles(lost);
+
+    if (stashed.length > 0) {
+      stageFiles(stashed);
+      console.log(`  🗄  ${stashed.length} file(s) left staged in the stash for next run.`);
     }
-    console.log('  No commit made.');
+  } else {
+    console.log('  💀 GAME OVER — No commit made.');
+    if (stashed.length > 0) {
+      console.log(`  🗄  ${stashed.length} stashed file(s) survived and are still staged:`);
+      for (const f of stashed) console.log(`    ${f}`);
+    }
     process.exit(1);
   }
 }

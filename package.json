@@ -16,8 +16,9 @@
     "tsc": "tsc --noEmit && vite build",
     "build": "vite build",
     "prepublishOnly": "vite build",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "postinstall": "node -e \"const fs=require('fs');fs.mkdirSync('public/audio',{recursive:true});['chiptune3.worklet.js','libopenmpt.worklet.js'].forEach(f=>fs.copyFileSync('node_modules/chiptune3/'+f,'public/audio/'+f))\""
+    "test": "vitest run",
+    "postinstall": "node -e \"const fs=require('fs');fs.mkdirSync('public/audio',{recursive:true});['chiptune3.worklet.js','libopenmpt.worklet.js'].forEach(f=>fs.copyFileSync('node_modules/chiptune3/'+f,'public/audio/'+f))\"",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -26,7 +27,8 @@
   "devDependencies": {
     "@types/three": "^0.185.3",
     "typescript": "^5.9.3",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "chiptune3": "^0.8.7",

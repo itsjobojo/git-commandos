@@ -4,18 +4,24 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInsideGitRepo } from './git-ops.mjs';
+import { RULE_OPTIONS } from './rules.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const COMMANDS_DIR = join(__dirname, 'commands');
 
 const args = process.argv.slice(2);
 
-// Parse global flags
-const flags = {
-  extreme: args.includes('--extreme'),
-  noMusic: args.includes('--no-music'),
-  help: args.includes('--help') || args.includes('-h'),
-};
+// Parse global flags. Supports bare `--flag` and `--flag=value`; camelCases
+// the key so `--no-music` reads as `flags.noMusic`.
+const flags = {};
+for (const arg of args) {
+  if (!arg.startsWith('--')) continue;
+  const eq = arg.indexOf('=');
+  const rawKey = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
+  const key = rawKey.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  flags[key] = eq === -1 ? true : arg.slice(eq + 1);
+}
+flags.help ||= args.includes('-h');
 const filteredArgs = args.filter((a) => !a.startsWith('--'));
 
 const subcommand = filteredArgs[0];
@@ -38,9 +44,17 @@ async function listCommands() {
     }
   }
   console.log('\n  Flags:');
-  console.log('    --extreme    Lost files are DELETED from disk (not just unstaged)');
-  console.log('    --no-music   Disable in-game music');
-  console.log('    --help       Show this help\n');
+  console.log('    --extreme          Lost files are DELETED from disk (not just unstaged)');
+  console.log('    --no-music         Disable in-game music');
+  console.log('    --help             Show this help');
+  console.log('\n  Mission rules:');
+  for (const [axis, spec] of Object.entries(RULE_OPTIONS)) {
+    console.log(`    --${axis}=<${spec.values.join('|')}>`.padEnd(38) + `(default: ${spec.default})`);
+    for (const value of spec.values) {
+      console.log(`        ${value.padEnd(10)} ${spec.describe[value]}`);
+    }
+  }
+  console.log('');
 }
 
 async function main() {

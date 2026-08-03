@@ -7,6 +7,7 @@ export interface DebriefData {
   mission: Mission;
   surviving: string[];
   lost: string[];
+  stashed: string[];
 }
 
 /**
@@ -14,7 +15,7 @@ export interface DebriefData {
  * tree, per file. A tool that can unstage your work owes you this screen.
  */
 export function showDebrief(root: HTMLElement, data: DebriefData): void {
-  const { outcome, mission, surviving, lost } = data;
+  const { outcome, mission, surviving, lost, stashed } = data;
   const won = outcome === 'win';
 
   const screen = el('div', CSS.fullscreen);
@@ -34,6 +35,15 @@ export function showDebrief(root: HTMLElement, data: DebriefData): void {
     const list = el('div', 'margin:6px 0 14px; max-height:160px; overflow-y:auto;');
     for (const name of surviving) {
       list.appendChild(el('div', 'color:#c3d3d0;', `✓ ${name}`));
+    }
+    panel.appendChild(list);
+  }
+
+  if (stashed.length) {
+    panel.appendChild(el('div', CSS.label, 'stashed — held back, still staged for next run'));
+    const list = el('div', 'margin:6px 0 14px; max-height:120px; overflow-y:auto;');
+    for (const name of stashed) {
+      list.appendChild(el('div', 'color:#a78bfa;', `🗄 ${name}`));
     }
     panel.appendChild(list);
   }

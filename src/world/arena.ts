@@ -77,6 +77,58 @@ export function buildTestArena(rng: Rng, cols = 44, rows = 44, tile = 2): BuiltM
   return { grid, group: buildMeshes(grid), spawn, extraction };
 }
 
+export interface Spot {
+  x: number;
+  z: number;
+}
+
+/**
+ * Find open floor positions, sorted nearest-to-farthest from `origin`.
+ *
+ * Used to place cargo: the biggest diff goes to the farthest spot, so a
+ * 200-line file is a real trek and a one-line tweak is on your way out.
+ */
+export function findOpenSpots(
+  grid: Grid,
+  rng: Rng,
+  count: number,
+  origin: Spot,
+  minDistance = 8,
+): Spot[] {
+  const candidates: Array<Spot & { d: number }> = [];
+  for (let cz = 1; cz < grid.rows - 1; cz++) {
+    for (let cx = 1; cx < grid.cols - 1; cx++) {
+      if (grid.cell(cx, cz) !== CELL.EMPTY) continue;
+      // Skip cells wedged against geometry — a crate there is a pain to reach.
+      if (grid.isSolid(cx - 1, cz) && grid.isSolid(cx + 1, cz)) continue;
+      if (grid.isSolid(cx, cz - 1) && grid.isSolid(cx, cz + 1)) continue;
+
+      const x = (cx + 0.5) * grid.tile;
+      const z = (cz + 0.5) * grid.tile;
+      const d = Math.hypot(x - origin.x, z - origin.z);
+      if (d < minDistance) continue;
+      candidates.push({ x, z, d });
+    }
+  }
+
+  if (candidates.length === 0) return [];
+
+  rng.shuffle(candidates);
+  candidates.sort((a, b) => a.d - b.d);
+
+  // Spread the picks across the sorted range so crates aren't all clustered at
+  // one radius.
+  const spots: Spot[] = [];
+  for (let i = 0; i < count; i++) {
+    const idx = Math.min(
+      candidates.length - 1,
+      Math.floor(((i + 0.5) / count) * candidates.length),
+    );
+    spots.push({ x: candidates[idx].x, z: candidates[idx].z });
+  }
+  return spots;
+}
+
 /**
  * One InstancedMesh per cell kind. A 44x44 arena is ~500 solid cells; as two
  * instanced draws that is free, where 500 separate meshes would not be.

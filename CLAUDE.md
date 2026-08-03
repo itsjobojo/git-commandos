@@ -23,7 +23,7 @@ gcmds commit -m "msg" --extreme  # Extreme mode: lost files are deleted from dis
 
 `GCMDS_NO_OPEN=1` stops the server launching a browser, so the protocol can be driven headlessly in tests.
 
-There is no linting configured. There are no tests **yet** — the first ones belong to `systems/carry.ts` when it lands (M4), because that is the only code that can destroy a user's work.
+`pnpm test` runs vitest. The only suite is `src/systems/cargo-ledger.test.ts` and that is deliberate — the ledger decides which of the user's files get committed, unstaged or deleted, so it is the one module that must never regress. Add to it whenever you touch cargo rules. There is no linting configured.
 
 ## Architecture
 
@@ -51,7 +51,7 @@ game/      game.ts (orchestration), mission.ts (GitContext → Mission)
 **Two rules that keep `game.ts` from becoming the old 1400-line monolith:**
 
 1. `Game` orchestrates, systems decide. `Game` may call `extraction.update(...)`. It may not contain a collision check or a damage rule.
-2. Only `systems/carry.ts` mutates crate state. Every "which files survived" question has exactly one answer, in one file.
+2. Only `systems/cargo-ledger.ts` decides what happens to a file. `carry.ts` moves crate *bodies* around the world and delegates every state change to the ledger. Every "which files survived" question has exactly one answer, in one pure, tested file.
 
 Everything downstream reads `Mission`, never `GitContext` — sandbox mode is not a special case threaded through the game, it's a Mission built from fake data.
 
@@ -66,14 +66,15 @@ The CLI server sends one `init` message when the browser connects:
                "branch": "main", "repo": "myproject" } }
 ```
 
-The game replies with exactly one `{ type: 'result', outcome: 'win'|'loss', payload: { survivingFiles[], lostFiles[] } }`. If the browser closes without a result, the CLI treats it as `abort` and does nothing — the correct failure mode for a tool that can unstage your work.
+…plus a `rules` block alongside `payload`. The game replies with exactly one `{ type: 'result', outcome: 'win'|'loss', payload: { survivingFiles[], lostFiles[], stashedFiles[] } }`. `stashedFiles` is only non-empty under `--stash=persist`: those are neither committed nor unstaged — the CLI drops them from the index, commits, and re-adds them so they stay staged for the next run. If the browser closes without a result, the CLI treats it as `abort` and does nothing — the correct failure mode for a tool that can unstage your work.
 
 `payload.files` also accepts the legacy `string[]` shape, so an older CLI works against a newer build.
 
 ### Git integration inside the game
 
 - Staged files → cargo crates. Lines added → extraction hold time and map size.
-- Getting hit drops a crate; a dropped crate decays into an unstage unless recovered. *(M4 — not yet implemented; currently all files survive a win.)*
+- Getting hit knocks the most recently collected crate loose. It decays on a visible timer and is lost for good if not recovered. A dropped crate has a short pickup lockout — without it the crate lands inside your own pickup radius and a hit costs nothing.
+- Mission rules are set by CLI flags (`cli/rules.mjs`) and travel in the init payload: `loss` (unstage/delete, from `--extreme`), `death` (cargo/health/fragile), `stash` (run/persist/off). Each has a safe default; the game must never apply a stricter rule than the one the user asked for.
 - Reaching the extraction pad and holding it completes the commit.
 - The mission seed is `branch:commitMessage`, so the same commit always generates the same map. Never use `Math.random()` in gameplay code — take an `Rng`.
 - `Game.finish()` is the only place a result reaches the CLI, and `sendResult` is idempotent on both sides.

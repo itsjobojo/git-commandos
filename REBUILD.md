@@ -443,7 +443,7 @@ is the acceptance harness throughout — the game must stay CLI-integrated from 
 | **M1** ✅ | Feel | Fixed-step loop, camera rig, WASD + mouse aim, dodge roll, grid collision, procedural floor. Capsule placeholder. | Moving a capsule around a grey box room already feels good. **Do not proceed until it does.** |
 | **M2** ✅ | Wire the git spine | `net/protocol.ts`, briefing screen from real `GitContext`, debrief, `sendResult`. Win = hold the extraction beacon. | `gcmds commit -m test` commits for real |
 | **M3** | Combat | Weapon + instanced projectiles, 2 enemy archetypes, damage, hitstop, death. | Fights are readable from the top-down camera |
-| **M4** | **Cargo** | `systems/carry.ts` in full: pick up, carry stack, drop-on-hit, decay, stash cache, extraction hold. Crates use real filenames. | Taking 2 hits and letting one crate decay unstages exactly that file, and no other |
+| **M4** ✅ | **Cargo** | `cargo-ledger.ts` (pure, tested) + `carry.ts` (bodies): pick up, carry stack, drop-on-hit, decay, two-way stash cache. Crates use real filenames. All three death rules and all three stash rules. | Taking 2 hits and letting one crate decay unstages exactly that file, and no other |
 | **M5** | Maps | Room chunks, seeded assembly, length from `linesAdded`, crate/enemy distribution. | A 400-line diff is visibly a longer mission than a 10-line one |
 | **M6** | Art pass | Real GLTF assets, the 3 hero meshes, lighting, materials, post chain. | Screenshots stop looking like a prototype |
 | **M7** | Juice, audio + **the bits** | VFX, positional SFX, music, HUD, briefing/debrief polish. Speech-bubble system + AI bro line table, meeting rings (mandatory/optional/recurring), Outlook invite mini-boss with both phases. | It's fun to lose, and someone screenshots a bro line unprompted |
@@ -473,11 +473,19 @@ architecture above supports it by only changing `render/camera.ts` and `world/gr
 
 ---
 
-## 9. Open questions
+## 9. Resolved: both open questions became flags
 
-1. **Do you die at all?** Current design: hits only cost cargo, so an empty-handed player is
-   invincible — clean, but removes the death fantasy. Alternative: a small separate health
-   pool where death = total loss. Worth deciding at M4, not before.
-2. **Should the stash cache persist across runs?** True to `git stash`, but it means the
-   game writes state to disk (`.gcmds/stash.json`) and the CLI would need to re-stage from it.
-3. **Multiplayer / ghost runs?** Out of scope, but the seeded-map decision keeps the door open.
+Rather than picking one answer, each axis ships all its variants with a safe default and a
+CLI override (`cli/rules.mjs`). The game never applies a stricter rule than the one asked for.
+
+| Flag | Default | Values |
+|---|---|---|
+| `--extreme` | off — lost cargo is **unstaged** | on — lost cargo is **deleted from disk**, and the decay timer is halved |
+| `--death=` | `cargo` — hits only knock cargo loose; you cannot be killed | `health` (4 hits, then total loss) · `fragile` (a hit while empty-handed kills you) |
+| `--stash=` | `run` — the cache is a safe deposit; stashed cargo ships on a win | `persist` (stashed cargo is held out of the commit and stays staged for next run) · `off` (no cache) |
+
+`persist` needs no disk state: the CLI simply drops those paths from the index, commits,
+and re-adds them. `git stash` semantics without a `.gcmds/stash.json`.
+
+Still open: **multiplayer / ghost runs** — out of scope, but the seeded-map decision keeps
+the door open.

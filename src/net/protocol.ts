@@ -17,17 +17,50 @@ export interface StagedFile {
 
 export type Outcome = 'win' | 'loss';
 
+/** What happens to files you fail to extract. */
+export type LossRule = 'unstage' | 'delete';
+
+/**
+ * - `cargo`   hits only knock cargo loose; you cannot be killed
+ * - `health`  separate health pool; running out loses everything
+ * - `fragile` hits knock cargo loose, but a hit while empty-handed kills you
+ */
+export type DeathRule = 'cargo' | 'health' | 'fragile';
+
+/**
+ * - `run`     the stash cache protects cargo from death, within this run only
+ * - `persist` cargo left in the stash stays staged for the next run
+ * - `off`     no stash cache spawns
+ */
+export type StashRule = 'run' | 'persist' | 'off';
+
+export interface Rules {
+  loss: LossRule;
+  death: DeathRule;
+  stash: StashRule;
+}
+
+export const DEFAULT_RULES: Rules = { loss: 'unstage', death: 'cargo', stash: 'run' };
+
 export interface GitContext {
   command: string;
   difficulty: 'basic' | 'extreme';
   music: boolean;
+  rules: Rules;
   files: StagedFile[];
   commitMessage: string;
   linesAdded: number;
   branch: string;
   repo: string;
   /** Idempotent — only the first call is sent on the wire. */
-  sendResult: (outcome: Outcome, surviving: string[], lost: string[]) => void;
+  sendResult: (outcome: Outcome, result: RunResult) => void;
+}
+
+export interface RunResult {
+  surviving: string[];
+  lost: string[];
+  /** Only non-empty under `stash: 'persist'` — stays staged, never committed. */
+  stashed: string[];
 }
 
 const HANDSHAKE_TIMEOUT_MS = 2000;
@@ -74,12 +107,13 @@ export function connectGitContext(): Promise<GitContext | null> {
         command: msg.command,
         difficulty: msg.difficulty === 'extreme' ? 'extreme' : 'basic',
         music: msg.music !== false,
+        rules: normaliseRules(msg.rules, msg.difficulty === 'extreme'),
         files: normaliseFiles(msg.payload.files),
         commitMessage: msg.payload.commitMessage ?? '',
         linesAdded: msg.payload.linesAdded ?? 0,
         branch: msg.payload.branch ?? 'HEAD',
         repo: msg.payload.repo ?? '',
-        sendResult(outcome, surviving, lost) {
+        sendResult(outcome, result) {
           // Sending twice would let the CLI act on a stale result. One only.
           if (sent) return;
           sent = true;
@@ -87,7 +121,11 @@ export function connectGitContext(): Promise<GitContext | null> {
             JSON.stringify({
               type: 'result',
               outcome,
-              payload: { survivingFiles: surviving, lostFiles: lost },
+              payload: {
+                survivingFiles: result.surviving,
+                lostFiles: result.lost,
+                stashedFiles: result.stashed,
+              },
             }),
           );
         },
@@ -104,6 +142,7 @@ interface InitMessage {
   command: string;
   difficulty?: string;
   music?: boolean;
+  rules?: unknown;
   payload: {
     files: unknown;
     commitMessage?: string;
@@ -120,6 +159,25 @@ function isInit(msg: unknown): msg is InitMessage {
     (msg as { type?: unknown }).type === 'init' &&
     typeof (msg as { payload?: unknown }).payload === 'object'
   );
+}
+
+const DEATH_RULES: DeathRule[] = ['cargo', 'health', 'fragile'];
+const STASH_RULES: StashRule[] = ['run', 'persist', 'off'];
+
+/**
+ * A CLI that predates the rules block sends nothing, so fall back to the
+ * defaults — deriving the loss rule from the older `difficulty` field, which
+ * is the one setting that already existed.
+ */
+function normaliseRules(raw: unknown, extreme: boolean): Rules {
+  const fallback: Rules = { ...DEFAULT_RULES, loss: extreme ? 'delete' : 'unstage' };
+  if (typeof raw !== 'object' || raw === null) return fallback;
+  const r = raw as Partial<Rules>;
+  return {
+    loss: r.loss === 'delete' || r.loss === 'unstage' ? r.loss : fallback.loss,
+    death: DEATH_RULES.includes(r.death as DeathRule) ? (r.death as DeathRule) : fallback.death,
+    stash: STASH_RULES.includes(r.stash as StashRule) ? (r.stash as StashRule) : fallback.stash,
+  };
 }
 
 /**

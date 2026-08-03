@@ -48,6 +48,16 @@ export function commitFiles(message) {
   run(`git commit -m ${JSON.stringify(message)}`);
 }
 
+export function stageFiles(files) {
+  for (const f of files) {
+    try {
+      run(`git add -- ${JSON.stringify(f)}`);
+    } catch {
+      // file may have been deleted; nothing to re-stage
+    }
+  }
+}
+
 export function unstageFiles(files) {
   for (const f of files) {
     try {

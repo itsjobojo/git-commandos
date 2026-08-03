@@ -1,4 +1,4 @@
-import type { GitContext, StagedFile } from '../net/protocol';
+import { DEFAULT_RULES, type GitContext, type Rules, type StagedFile } from '../net/protocol';
 
 /**
  * A mission is the game's view of a git operation: what's at stake, how long
@@ -16,6 +16,8 @@ export interface Mission {
   command: string;
   difficulty: 'basic' | 'extreme';
   music: boolean;
+  /** What a run can cost you — set by CLI flags, see cli/rules.mjs. */
+  rules: Rules;
 
   repo: string;
   branch: string;
@@ -44,6 +46,7 @@ export function buildMission(ctx: GitContext | null): Mission {
       command: 'play',
       difficulty: 'basic',
       music: true,
+      rules: DEFAULT_RULES,
       repo: 'sandbox',
       branch: 'detached',
       commitMessage: 'sandbox run — no real git state',
@@ -60,6 +63,7 @@ export function buildMission(ctx: GitContext | null): Mission {
     command: ctx.command,
     difficulty: ctx.difficulty,
     music: ctx.music,
+    rules: ctx.rules,
     repo: ctx.repo,
     branch: ctx.branch,
     commitMessage: ctx.commitMessage,
