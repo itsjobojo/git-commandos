@@ -199,10 +199,12 @@ export class CarrySystem {
     for (const crate of this.crates) {
       const record = crate.record;
       if (record.state === 'carried') {
+        crate.visual.setStowed(true);
         crate.visual.setDecay(0);
         continue;
       }
       if (record.state === 'lost') continue;
+      crate.visual.setStowed(false);
       const decayT =
         record.state === 'dropped' && this.ledger.decaySeconds > 0
           ? 1 - record.decay / this.ledger.decaySeconds

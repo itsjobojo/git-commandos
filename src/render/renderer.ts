@@ -17,9 +17,17 @@ export function createRenderer(canvas: HTMLCanvasElement): WebGLRenderer {
   renderer.setClearColor(PALETTE.void, 1);
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.3;
+  // Applied after bloom, in OutputPass, so raising it lifts the final image
+  // without feeding the bloom threshold any more to work with.
+  renderer.toneMappingExposure = 1.45;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFShadowMap;
+
+  // `info` resets itself on every `render()`, and the post chain calls render
+  // several times a frame — so the debug readout was showing the cost of the
+  // final fullscreen quad and nothing else. Reset once per frame instead, from
+  // the game loop, so the number means the whole frame again.
+  renderer.info.autoReset = false;
 
   return renderer;
 }

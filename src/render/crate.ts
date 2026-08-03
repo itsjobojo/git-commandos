@@ -27,7 +27,20 @@ export interface CrateVisual {
   group: Group;
   setDecay(t: number): void;
   setTint(hex: number): void;
+  /**
+   * Stowed = riding on the player's back rather than lying on the floor.
+   *
+   * A stowed crate is turned right down. At full brightness a stack of four
+   * emissive cubes is larger and hotter than the player is, and under bloom the
+   * player disappears inside their own cargo — you lose track of the thing you
+   * are steering. A crate on the ground is the opposite case and stays bright,
+   * because it is the one object on the map you must get back to.
+   */
+  setStowed(stowed: boolean): void;
 }
+
+/** How far a stowed crate's emissives are pulled back. */
+const STOWED_DIM = 0.3;
 
 export function createCrateVisual(filename: string, weight: number): CrateVisual {
   const group = new Group();
@@ -71,6 +84,8 @@ export function createCrateVisual(filename: string, weight: number): CrateVisual
 
   const shellMat = shell.material as MeshStandardMaterial;
   const coreMat = core.material as MeshBasicMaterial;
+  const labelMat = label.material as MeshBasicMaterial;
+  let stowed = false;
 
   return {
     group,
@@ -79,15 +94,25 @@ export function createCrateVisual(filename: string, weight: number): CrateVisual
       const urgency = Math.max(0, Math.min(1, t));
       // Pulse rate climbs with urgency — a crate about to expire is visibly frantic.
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.001 * (3 + urgency * 22));
+      const dim = stowed ? STOWED_DIM : 1;
       coreMat.color.setHex(urgency > 0 ? PALETTE.crateDecay : PALETTE.crate);
+      coreMat.color.multiplyScalar(dim);
       coreMat.opacity = 1;
-      shellMat.emissiveIntensity = 0.2 + pulse * urgency * 0.9;
+      shellMat.emissiveIntensity = (0.2 + pulse * urgency * 0.9) * dim;
       shellMat.color.setHex(urgency > 0.55 ? PALETTE.crateDecay : PALETTE.crate);
     },
     setTint(hex: number) {
       shellMat.color.setHex(hex);
       shellMat.emissive.setHex(hex);
       coreMat.color.setHex(hex);
+    },
+    setStowed(next: boolean) {
+      if (next === stowed) return;
+      stowed = next;
+      // Names stay legible on the ground, where you are hunting for a specific
+      // file; on your back the HUD manifest already tells you what you hold.
+      labelMat.opacity = next ? 0.4 : 0.95;
+      shellMat.opacity = next ? 0.44 : 0.62;
     },
   };
 }

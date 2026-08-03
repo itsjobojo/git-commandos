@@ -1,6 +1,12 @@
 import { MathUtils, PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from 'three';
 
-const PITCH = MathUtils.degToRad(55);
+/**
+ * Camera pitch below horizontal. Exported because the rig never yaws, which
+ * means anything wanting to face the camera can bake this one fixed rotation
+ * into its geometry instead of billboarding per frame.
+ */
+export const CAMERA_PITCH_DEGREES = 57;
+const PITCH = MathUtils.degToRad(CAMERA_PITCH_DEGREES);
 const GROUND = new Plane(new Vector3(0, 1, 0), 0);
 
 /**
@@ -14,11 +20,26 @@ const GROUND = new Plane(new Vector3(0, 1, 0), 0);
 export class CameraRig {
   readonly camera: PerspectiveCamera;
 
-  /** Distance from the look-at point along the view axis. */
-  distance = 22;
-  /** How far the camera leans toward the aim point, in world units. */
-  leanAmount = 0.22;
-  maxLean = 4.5;
+  /**
+   * Distance from the look-at point along the view axis.
+   *
+   * Set against the enemy engagement envelope, not by eye. A Recruiter opens
+   * fire from 15 units and an Organizer parks at 15; at the old distance of 22
+   * the view was only ~13.5 units wide either side of the player, so the things
+   * shooting you were reliably off-screen. 26 puts that whole envelope inside
+   * the frame laterally and ahead.
+   */
+  distance = 26;
+  /**
+   * How far the camera leans toward the aim point, in world units.
+   *
+   * A pitched camera always shows less ground behind you than in front (here,
+   * ~9.5 units versus ~16). Leaning harder is what buys the look behind: point
+   * the mouse back over your shoulder and the camera actually gives you ground
+   * there, rather than making you turn and walk to see what you already heard.
+   */
+  leanAmount = 0.26;
+  maxLean = 6;
   /** Higher = snappier follow. */
   followStiffness = 7;
 

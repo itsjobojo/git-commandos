@@ -1,13 +1,6 @@
-import {
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  MeshStandardMaterial,
-  OctahedronGeometry,
-  RingGeometry,
-  Scene,
-} from 'three';
+import { Group, Mesh, MeshBasicMaterial, RingGeometry, Scene } from 'three';
 import { PALETTE } from '../render/palette';
+import { createInviteMesh } from '../render/invite';
 
 const FUSE_SECONDS = 2.2;
 const ARC_HEIGHT = 7;
@@ -30,7 +23,7 @@ interface Bomb {
   fuse: number;
   landed: boolean;
   group: Group;
-  shell: Mesh;
+  shell: Group;
   marker: Mesh;
 }
 
@@ -58,16 +51,11 @@ export class BombSystem {
   throwAt(fromX: number, fromZ: number, toX: number, toZ: number): void {
     const group = new Group();
 
-    const shell = new Mesh(
-      new OctahedronGeometry(0.55, 0),
-      new MeshStandardMaterial({
-        color: PALETTE.invite,
-        emissive: PALETTE.invite,
-        emissiveIntensity: 0.6,
-        flatShading: true,
-      }),
-    );
-    shell.castShadow = true;
+    // The bomb is a meeting invite, same object as the boss throwing it — just
+    // small, hot, and tumbling. Wrapped in a carrier Group so the tumble can
+    // spin freely without fighting the invite's own internal orientation.
+    const shell = new Group();
+    shell.add(createInviteMesh(0.5, 0.75).group);
 
     // Ground marker so the landing spot is readable before it gets there.
     const marker = new Mesh(

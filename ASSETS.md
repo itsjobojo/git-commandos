@@ -41,6 +41,23 @@ Three "hero" meshes — the file crate, the extraction beacon, and the player �
 are authored specifically for this game rather than pulled from a pack, so the
 game has an identity of its own. See REBUILD.md §5.
 
+## Exception: the Outlook mark — NOT CC0
+
+`src/render/invite.ts` reproduces the Microsoft Outlook icon, drawn from the
+official artwork, at the project owner's explicit direction. It is used for the
+Invite Swarm mini-boss, the invites it fires, and the invite bombs.
+
+This is the **only** thing in the repository that is not CC0, and it is a
+registered trademark of Microsoft Corporation. Nothing here is affiliated with
+or endorsed by Microsoft.
+
+- It is confined to that one file on purpose, so it can be swapped in one place.
+- `git log -- src/render/invite.ts` has an unbranded envelope-and-calendar
+  version that is a drop-in replacement and needs no other change.
+- **Resolve this before publishing to npm.** A trademark on a character the
+  player shoots is the use a mark holder is most likely to object to, and
+  distribution is what turns that from theoretical into real.
+
 ## Adding an asset
 
 1. Check the licence **before** downloading. CC0 or equivalent only.

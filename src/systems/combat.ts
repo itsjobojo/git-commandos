@@ -8,7 +8,8 @@ import type { Loadout } from './weapons';
 
 export interface CombatEvents {
   onEnemyKilled?: (enemy: Enemy) => void;
-  onPlayerHit?: () => boolean;
+  /** @param sourceX/sourceZ where the hit came from, for directional feedback. */
+  onPlayerHit?: (sourceX: number, sourceZ: number) => boolean;
   shake?: (amount: number) => void;
   /** The held weapon just ran dry and dropped back to the sidearm. */
   onOutOfAmmo?: () => void;
@@ -193,7 +194,7 @@ export class CombatSystem {
       const dz = player.z - bz;
       if (dx * dx + dz * dz > r * r) continue;
       this.projectiles.kill(i);
-      if (!player.invulnerable) this.events.onPlayerHit?.();
+      if (!player.invulnerable) this.events.onPlayerHit?.(bx, bz);
     }
   }
 

@@ -72,18 +72,23 @@ export function showBriefing(root: HTMLElement, mission: Mission): Promise<void>
     );
   }
 
+  // You land with the whole commit already on your back — the run is carrying
+  // it out, not finding it. The old copy described a collect-the-crates game
+  // that no longer exists and sent people hunting the map for cargo they were
+  // already holding.
   panel.appendChild(
     el(
       'div',
       CSS.label,
-      `objective — collect the cargo, then hold the beacon for ${mission.holdSeconds.toFixed(1)}s`,
+      `objective — carry the cargo to the beacon and hold it for ${mission.holdSeconds.toFixed(1)}s`,
     ),
   );
   panel.appendChild(
     el(
       'div',
-      'color:#5c7180; margin-top:4px;',
-      'Walk over a crate to pick it up. Taking a hit knocks one loose — recover it before it decays.',
+      'color:#8fa3ae; margin-top:4px;',
+      'You deploy with every file already on your back. Taking a hit knocks one loose — ' +
+        'pick it back up before it decays, or it does not make the commit.',
     ),
   );
 
@@ -102,11 +107,18 @@ export function showBriefing(root: HTMLElement, mission: Mission): Promise<void>
     deploy.style.background = 'rgba(74,222,128,.1)';
   });
 
-  const hint = el('div', 'color:#5c7180;');
-  hint.innerHTML =
-    `<span style="${CSS.key}">WASD</span> move &nbsp;·&nbsp; <span style="${CSS.key}">SPACE</span> dodge` +
-    ` &nbsp;·&nbsp; <span style="${CSS.key}">Q</span> drop` +
-    (mission.rules.stash === 'off' ? '' : ` &nbsp;·&nbsp; <span style="${CSS.key}">E</span> stash`);
+  // Firing and pausing were missing entirely — this is the only place the
+  // controls are ever shown, so anything left off it is undiscoverable.
+  const hint = el('div', 'color:#8fa3ae; display:flex; flex-wrap:wrap; gap:4px 14px; align-items:center;');
+  hint.innerHTML = [
+    `<span style="${CSS.key}">WASD</span> move`,
+    `<span style="${CSS.key}">MOUSE</span> aim`,
+    `<span style="${CSS.key}">LMB</span> fire`,
+    `<span style="${CSS.key}">SPACE</span> dodge`,
+    `<span style="${CSS.key}">Q</span> drop`,
+    ...(mission.rules.stash === 'off' ? [] : [`<span style="${CSS.key}">E</span> stash`]),
+    `<span style="${CSS.key}">ESC</span> pause`,
+  ].join('');
   controls.append(deploy, hint);
   panel.appendChild(controls);
 

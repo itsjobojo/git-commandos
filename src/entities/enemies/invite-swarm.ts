@@ -1,6 +1,6 @@
-import { BoxGeometry, Group, Mesh, MeshStandardMaterial, OctahedronGeometry } from 'three';
+import { Group, Mesh, MeshStandardMaterial } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
-import { PALETTE } from '../../render/palette';
+import { createInviteMesh } from '../../render/invite';
 
 const DRIFT_SPEED = 2.1;
 const PREFERRED_RANGE = 13;
@@ -17,6 +17,8 @@ const SPIRAL_ARMS = 2;
 const INVITE_LIFE = 2.6;
 /** Seconds between invite bombs. */
 const BOMB_INTERVAL: [number, number] = [6.5, 9.5];
+/** How far the invite reclines, so its face is readable from the game camera. */
+const BASE_LEAN = -0.5;
 
 /**
  * The Invite Swarm — mid-game mini-boss.
@@ -29,8 +31,9 @@ const BOMB_INTERVAL: [number, number] = [6.5, 9.5];
  * At half health it stops sending individual invites and starts one recurring
  * series: a spiral that doesn't stop until the boss is dead.
  *
- * Deliberately unbranded: no real product name or logo appears anywhere. The
- * joke is the behaviour, not the trademark, and this ships as an npm package.
+ * It is a giant Outlook icon. See the licence note in `render/invite.ts` — the
+ * mark is reproduced at the project owner's direction and is the one asset in
+ * the repository that is not CC0.
  */
 export class InviteSwarm extends Enemy {
   readonly group = new Group();
@@ -42,30 +45,21 @@ export class InviteSwarm extends Enemy {
   private bombTimer = 3;
   private spiralAngle = 0;
   private bob = 0;
-  private readonly shell: Mesh;
-  private readonly envelope: Mesh;
+  /** The whole invite, lifted clear of the ground so it reads as hovering. */
+  private readonly body = new Group();
+  private readonly card: Mesh;
+  private readonly glow: MeshStandardMaterial;
 
   constructor() {
     super();
 
-    const shellMaterial = new MeshStandardMaterial({
-      color: PALETTE.invite,
-      emissive: PALETTE.invite,
-      emissiveIntensity: 0.35,
-      roughness: 0.4,
-      flatShading: true,
-    });
-    this.shell = new Mesh(new OctahedronGeometry(1.5, 0), shellMaterial);
-    this.shell.position.y = 3.1;
-    this.shell.castShadow = true;
+    const invite = createInviteMesh(1.9, 0.34);
+    this.body.add(invite.group);
+    this.body.position.y = 3.1;
+    this.card = invite.card;
+    this.glow = invite.glow;
 
-    this.envelope = new Mesh(
-      new BoxGeometry(1.5, 1.05, 0.16),
-      new MeshStandardMaterial({ color: 0xf2f6ff, roughness: 0.6, flatShading: true }),
-    );
-    this.envelope.position.y = 3.1;
-
-    this.group.add(this.shell, this.envelope);
+    this.group.add(this.body);
     this.object = this.group;
   }
 
@@ -130,6 +124,7 @@ export class InviteSwarm extends Enemy {
         damage: 1,
         life: INVITE_LIFE,
         radius: 0.28,
+        invite: true,
         // Gentle enough that a dodge-roll still beats it — homing should make
         // invites feel persistent, not inescapable.
         homing: 1.1,
@@ -151,20 +146,36 @@ export class InviteSwarm extends Enemy {
         damage: 1,
         life: INVITE_LIFE,
         radius: 0.26,
+        invite: true,
       });
     }
   }
 
   syncSwarm(alpha: number): void {
     super.syncObject(alpha, 0);
-    this.group.rotation.y = -this.yaw;
+    // `yaw` is a bearing measured from +X, and the invite is authored facing
+    // +Z, so turning it to face the player is a quarter turn off the bearing.
+    // The old `-yaw` was fine for the octahedron this replaced — a shape with
+    // no front cannot be pointed the wrong way — but it left the calendar face
+    // permanently edge-on to the camera.
+    this.group.rotation.y = Math.PI / 2 - this.yaw;
+
     const hover = Math.sin(this.bob * 1.4) * 0.28;
-    this.shell.position.y = 3.1 + hover;
-    this.envelope.position.y = 3.1 + hover;
-    this.shell.rotation.y += 0.01;
-    // Visibly agitated once the recurring series starts.
+    this.body.position.y = 3.1 + hover;
+    // A slow lean rather than a spin: the calendar face has to stay pointed at
+    // the player to be readable, and a rotating invite is just a blue blob.
+    this.body.rotation.z = Math.sin(this.bob * 0.9) * 0.09;
+    // Leant back on its heels. An upright invite is edge-on to a camera pitched
+    // 57° down, so the calendar face — the only part that identifies what this
+    // thing is — is exactly the part you cannot see. The lean trades a little
+    // realism for the object being recognisable from where it is actually
+    // viewed from.
+    this.body.rotation.x = BASE_LEAN + Math.sin(this.bob * 1.1 + 0.7) * 0.06;
+    // The card rattles in its envelope as the thing gets angrier.
     const wounded = 1 - this.hp / this.maxHp;
-    (this.shell.material as MeshStandardMaterial).emissiveIntensity =
-      0.35 + wounded * (0.6 + Math.sin(this.bob * 18) * 0.35);
+    this.card.rotation.z = Math.sin(this.bob * (4 + wounded * 22)) * 0.03 * (0.4 + wounded);
+
+    // Visibly agitated once the recurring series starts.
+    this.glow.emissiveIntensity = 0.34 + wounded * (0.6 + Math.sin(this.bob * 18) * 0.35);
   }
 }

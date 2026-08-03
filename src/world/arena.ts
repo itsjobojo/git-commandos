@@ -1,10 +1,22 @@
-import { BoxGeometry, Group, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D } from 'three';
+import {
+  BoxGeometry,
+  Group,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  MeshStandardMaterial,
+  Object3D,
+} from 'three';
 import { CELL, Grid } from './grid';
 import { PALETTE } from '../render/palette';
+import { applyConcreteSurface, applyFacadeSurface, setOccluderFocus } from '../render/surfaces';
+import { planCity } from './city';
 import type { Rng } from '../core/rng';
 
+/** Fallback height, used only if a cell somehow has no building planned for it. */
 export const WALL_HEIGHT = 3.4;
 export const COVER_HEIGHT = 1.15;
+/** The concrete cap ringing each roof. */
+export const PARAPET_HEIGHT = 0.34;
 
 export interface Spot {
   x: number;
@@ -20,6 +32,13 @@ export interface BuiltMap {
   waypoints: Spot[];
   /** End of a dead-end side branch, or null if there wasn't room for one. */
   stash: Spot | null;
+  /**
+   * Move the point that occluding buildings dissolve around. Call once a frame
+   * with the player's position — a 6-unit building on the near side of the
+   * player sits directly on the camera's sightline, so without this the thing
+   * you are steering spends half the run behind a roof.
+   */
+  setFocus(x: number, y: number, z: number): void;
 }
 
 /** Keep endpoints this many cells clear of the border wall. */
@@ -100,7 +119,8 @@ export function buildRoute(rng: Rng, cols = 44, rows = 44, tile = 2): BuiltMap {
     carveCorridor(grid, from, to, SAFE_CORRIDOR_RADIUS);
   }
 
-  return { grid, group: buildMeshes(grid), spawn, extraction, waypoints, stash };
+  const city = buildMeshes(grid);
+  return { grid, group: city.group, setFocus: city.setFocus, spawn, extraction, waypoints, stash };
 }
 
 /**
@@ -387,11 +407,25 @@ export function findOpenSpots(
  * rendering the shell instead of the volume cuts the instance count by an
  * order of magnitude and keeps the shadow pass cheap.
  */
-export function buildMeshes(grid: Grid): Group {
+export function buildMeshes(grid: Grid): {
+  group: Group;
+  setFocus: (x: number, y: number, z: number) => void;
+} {
   const group = new Group();
   group.name = 'map';
 
-  const visibleWalls: Array<{ cx: number; cz: number }> = [];
+  const plan = planCity(grid);
+
+  // Every wall cell is built, not just the shell.
+  //
+  // The old build skipped buried cells because nothing could see them. Now that
+  // buildings have varied heights they also have roofs, and a roof is exactly
+  // what a 57° camera looks down at — skipping the interior leaves each
+  // building an open shell with a pit where its middle should be. It is still
+  // one instanced draw call either way.
+  const buildings: Array<{ cx: number; cz: number }> = [];
+  // The parapet rings only the outer edge, which is the whole point of it.
+  const parapets: Array<{ cx: number; cz: number }> = [];
   const covers: Array<{ cx: number; cz: number }> = [];
 
   for (let cz = 0; cz < grid.rows; cz++) {
@@ -399,17 +433,24 @@ export function buildMeshes(grid: Grid): Group {
       const kind = grid.cell(cx, cz);
       if (kind === CELL.COVER) {
         covers.push({ cx, cz });
-      } else if (kind === CELL.WALL && hasOpenNeighbour(grid, cx, cz)) {
-        visibleWalls.push({ cx, cz });
+      } else if (kind === CELL.WALL) {
+        buildings.push({ cx, cz });
+        if (hasOpenNeighbour(grid, cx, cz)) parapets.push({ cx, cz });
       }
     }
   }
 
-  const wallMaterial = new MeshStandardMaterial({
+  // flatShading is dropped here: it quantises the normal per face, which throws
+  // away the gradients the surface shaders paint down each facade.
+  const facadeMaterial = new MeshStandardMaterial({
     color: PALETTE.wall,
     roughness: 0.92,
     metalness: 0.02,
-    flatShading: true,
+  });
+  const parapetMaterial = new MeshStandardMaterial({
+    color: PALETTE.wallTop,
+    roughness: 0.95,
+    metalness: 0.0,
   });
   const coverMaterial = new MeshStandardMaterial({
     color: PALETTE.cover,
@@ -417,47 +458,98 @@ export function buildMeshes(grid: Grid): Group {
     metalness: 0.05,
     emissive: PALETTE.wallEdge,
     emissiveIntensity: 0.12,
-    flatShading: true,
   });
+  applyFacadeSurface(facadeMaterial);
+  applyConcreteSurface(parapetMaterial, PARAPET_HEIGHT);
+  applyConcreteSurface(coverMaterial, COVER_HEIGHT);
 
-  const walls = new InstancedMesh(
-    new BoxGeometry(grid.tile, WALL_HEIGHT, grid.tile),
-    wallMaterial,
-    Math.max(visibleWalls.length, 1),
+  // Unit-height box: the instance matrix scales it to each building's height,
+  // so one geometry serves every roofline on the map.
+  const facades = new InstancedMesh(
+    new BoxGeometry(grid.tile, 1, grid.tile),
+    facadeMaterial,
+    Math.max(buildings.length, 1),
+  );
+  const parapetMesh = new InstancedMesh(
+    // Slightly proud of the facade so the cap actually overhangs and throws a
+    // line of shadow, instead of sitting flush and reading as more wall.
+    new BoxGeometry(grid.tile * 1.06, PARAPET_HEIGHT, grid.tile * 1.06),
+    parapetMaterial,
+    Math.max(parapets.length, 1),
   );
   const coverMesh = new InstancedMesh(
     new BoxGeometry(grid.tile * 0.94, COVER_HEIGHT, grid.tile * 0.94),
     coverMaterial,
     Math.max(covers.length, 1),
   );
-  walls.castShadow = coverMesh.castShadow = true;
-  walls.receiveShadow = coverMesh.receiveShadow = true;
-  walls.count = visibleWalls.length;
+
+  facades.castShadow = parapetMesh.castShadow = coverMesh.castShadow = true;
+  facades.receiveShadow = parapetMesh.receiveShadow = coverMesh.receiveShadow = true;
+  facades.count = buildings.length;
+  parapetMesh.count = parapets.length;
   coverMesh.count = covers.length;
 
-  const dummy = new Object3D();
-  const matrix = new Matrix4();
+  // Per-instance (building seed, building height). The facade shader needs both
+  // to place windows and to know where its own roofline is; neither can be
+  // recovered from the instance matrix without decomposing it per fragment.
+  const facadeData = new Float32Array(Math.max(buildings.length, 1) * 2);
+  const parapetData = new Float32Array(Math.max(parapets.length, 1) * 2);
+  const coverData = new Float32Array(Math.max(covers.length, 1) * 2);
 
-  visibleWalls.forEach((cell, i) => {
-    dummy.position.set((cell.cx + 0.5) * grid.tile, WALL_HEIGHT / 2, (cell.cz + 0.5) * grid.tile);
+  const dummy = new Object3D();
+
+  buildings.forEach((cell, i) => {
+    const index = cell.cz * grid.cols + cell.cx;
+    const height = plan.height[index] || WALL_HEIGHT;
+    dummy.position.set((cell.cx + 0.5) * grid.tile, height / 2, (cell.cz + 0.5) * grid.tile);
     dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, height, 1);
     dummy.updateMatrix();
-    matrix.copy(dummy.matrix);
-    walls.setMatrixAt(i, matrix);
+    facades.setMatrixAt(i, dummy.matrix);
+    facadeData[i * 2] = plan.seed[index];
+    facadeData[i * 2 + 1] = height;
+  });
+
+  parapets.forEach((cell, i) => {
+    const index = cell.cz * grid.cols + cell.cx;
+    const height = plan.height[index] || WALL_HEIGHT;
+    dummy.position.set(
+      (cell.cx + 0.5) * grid.tile,
+      height + PARAPET_HEIGHT / 2,
+      (cell.cz + 0.5) * grid.tile,
+    );
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    parapetMesh.setMatrixAt(i, dummy.matrix);
+    parapetData[i * 2] = plan.seed[index];
+    parapetData[i * 2 + 1] = PARAPET_HEIGHT;
   });
 
   covers.forEach((cell, i) => {
     dummy.position.set((cell.cx + 0.5) * grid.tile, COVER_HEIGHT / 2, (cell.cz + 0.5) * grid.tile);
     dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
-    matrix.copy(dummy.matrix);
-    coverMesh.setMatrixAt(i, matrix);
+    coverMesh.setMatrixAt(i, dummy.matrix);
+    coverData[i * 2] = 0;
+    coverData[i * 2 + 1] = COVER_HEIGHT;
   });
 
-  walls.instanceMatrix.needsUpdate = true;
+  facades.geometry.setAttribute('aBuilding', new InstancedBufferAttribute(facadeData, 2));
+  parapetMesh.geometry.setAttribute('aBuilding', new InstancedBufferAttribute(parapetData, 2));
+  coverMesh.geometry.setAttribute('aBuilding', new InstancedBufferAttribute(coverData, 2));
+
+  facades.instanceMatrix.needsUpdate = true;
+  parapetMesh.instanceMatrix.needsUpdate = true;
   coverMesh.instanceMatrix.needsUpdate = true;
-  group.add(walls, coverMesh);
-  return group;
+  group.add(facades, parapetMesh, coverMesh);
+
+  const focusable = [facadeMaterial, parapetMaterial, coverMaterial];
+  return {
+    group,
+    setFocus: (x, y, z) => setOccluderFocus(focusable, x, y, z),
+  };
 }
 
 function hasOpenNeighbour(grid: Grid, cx: number, cz: number): boolean {

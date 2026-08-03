@@ -33,10 +33,15 @@ export class Lighting {
     scene.add(this.sun);
     scene.add(this.sun.target);
 
-    this.hemi = new HemisphereLight(0x9fc4ff, PALETTE.floor, 0.9);
+    // Fill is kept low on purpose. It was set for a map of flat dark boxes;
+    // once those became facades catching light on every side, the same fill
+    // lifted the whole city into a uniform grey and flattened out the one thing
+    // that makes it read as night — the contrast between a lit window and the
+    // wall around it.
+    this.hemi = new HemisphereLight(0x9fc4ff, PALETTE.floor, 0.58);
     scene.add(this.hemi);
 
-    this.ambient = new AmbientLight(0x8ea6c0, 0.5);
+    this.ambient = new AmbientLight(0x8ea6c0, 0.34);
     scene.add(this.ambient);
   }
 

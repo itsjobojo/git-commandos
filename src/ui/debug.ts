@@ -4,7 +4,12 @@
  */
 export class DebugOverlay {
   private readonly el: HTMLDivElement;
-  private visible = true;
+  /**
+   * Off by default. This is a developer readout, and it was shipping switched
+   * on — nine lines of engine internals laid over the top-left corner of the
+   * playfield, which is exactly where a stampede arrives from.
+   */
+  private visible = false;
   private accum = 0;
 
   constructor(parent: HTMLElement) {
@@ -19,6 +24,7 @@ export class DebugOverlay {
       'text-shadow:0 1px 0 #000',
       'pointer-events:none',
     ].join(';');
+    this.el.style.display = 'none';
     parent.appendChild(this.el);
 
     window.addEventListener('keydown', (e) => {

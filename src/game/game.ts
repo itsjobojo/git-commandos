@@ -4,6 +4,7 @@ import { Input } from '../core/input';
 import { Rng } from '../core/rng';
 import { Time, hitstop } from '../core/time';
 import { createRenderer, fitToWindow } from '../render/renderer';
+import { PostChain } from '../render/post';
 import { CameraRig } from '../render/camera';
 import { Lighting } from '../render/lighting';
 import { createFloor } from '../render/floor';
@@ -31,6 +32,8 @@ import { Intern } from '../entities/enemies/intern';
 import type { Enemy, EnemyContext } from '../entities/enemies/enemy';
 import { DebugOverlay } from '../ui/debug';
 import { Hud } from '../ui/hud';
+import { EdgeMarkers } from '../ui/markers';
+import { DamageOverlay } from '../ui/damage';
 import { showBriefing } from '../ui/briefing';
 import { showAborted, showDebrief, type DebriefReason } from '../ui/debrief';
 import { showPause } from '../ui/pause';
@@ -55,12 +58,15 @@ const HIT_INVULN = 1.1;
 export class Game {
   private readonly scene = new Scene();
   private readonly renderer: WebGLRenderer;
+  private readonly post: PostChain;
   private readonly rig: CameraRig;
   private readonly lighting: Lighting;
   private readonly input: Input;
   private readonly loop: Loop;
   private readonly debug: DebugOverlay;
   private readonly hud: Hud;
+  private readonly markers: EdgeMarkers;
+  private readonly damage: DamageOverlay;
   private readonly rng: Rng;
 
   private readonly map: BuiltMap;
@@ -96,9 +102,22 @@ export class Game {
 
     this.renderer = createRenderer(canvas);
     this.rig = new CameraRig(window.innerWidth / window.innerHeight);
-    this.disposeResize = fitToWindow(this.renderer, (w, h) => this.rig.resize(w, h));
+    this.post = new PostChain(
+      this.renderer,
+      this.scene,
+      this.rig.camera,
+      window.innerWidth,
+      window.innerHeight,
+    );
+    this.disposeResize = fitToWindow(this.renderer, (w, h) => {
+      this.rig.resize(w, h);
+      this.post.setSize(w, h);
+    });
 
-    this.scene.fog = new Fog(PALETTE.fog, 28, 82);
+    // Fog range is measured from the camera, not the player, so it has to clear
+    // the camera's own 26-unit standoff. Starting at 28 put the near haze
+    // essentially on top of the player and greyed out the whole playfield.
+    this.scene.fog = new Fog(PALETTE.fog, 38, 104);
     this.lighting = new Lighting(this.scene);
 
     this.map = buildRoute(this.rng, mission.arenaCells, mission.arenaCells);
@@ -143,8 +162,8 @@ export class Game {
 
     this.combat = new CombatSystem(this.scene, this.map.grid, this.loadout, {
       onEnemyKilled: (enemy) => this.onEnemyKilled(enemy),
-      onPlayerHit: () => {
-        this.takeHit();
+      onPlayerHit: (sourceX, sourceZ) => {
+        this.takeHit(sourceX, sourceZ);
         return true;
       },
       shake: (amount) => this.rig.addTrauma(amount),
@@ -174,6 +193,8 @@ export class Game {
 
     this.input = new Input(canvas);
     this.debug = new DebugOverlay(uiRoot);
+    this.markers = new EdgeMarkers(uiRoot);
+    this.damage = new DamageOverlay(uiRoot);
     this.hud = new Hud(uiRoot);
     this.hud.setMission(mission);
     this.disposeDebugKeys = this.bindDebugKeys();
@@ -198,6 +219,9 @@ export class Game {
     this.disposeDebugKeys();
     this.lighting.dispose();
     this.hud.dispose();
+    this.markers.dispose();
+    this.damage.dispose();
+    this.post.dispose();
     this.renderer.dispose();
   }
 
@@ -269,9 +293,9 @@ export class Game {
       time: Time.real,
       extracting: this.extraction.progress > 0,
       fire: (opts) => this.combat.projectiles.spawn({ ...opts, faction: Faction.Enemy }),
-      hitPlayer: () => {
+      hitPlayer: (sourceX, sourceZ) => {
         if (this.player.invulnerable) return false;
-        this.takeHit();
+        this.takeHit(sourceX, sourceZ);
         return true;
       },
       shake: (amount) => this.rig.addTrauma(amount),
@@ -440,8 +464,15 @@ export class Game {
    *
    * M3 calls this from enemy fire; until then it's on a debug key.
    */
-  takeHit(): void {
+  takeHit(sourceX?: number, sourceZ?: number): void {
     if (this.state !== 'playing' || this.player.invulnerable) return;
+
+    // Point the player at whatever just cost them a file. A hit with no
+    // locatable source (the debug key) still flashes, just without a bearing.
+    this.damage.hit(
+      sourceX === undefined ? 0 : sourceX - this.player.x,
+      sourceZ === undefined ? 0 : sourceZ - this.player.z,
+    );
 
     const dropped = this.carry.knockLoose(this.player);
     this.player.invulnTimer = HIT_INVULN;
@@ -518,11 +549,17 @@ export class Game {
   }
 
   private render = (alpha: number, realDt: number): void => {
+    this.renderer.info.reset();
     this.player.syncObject(alpha);
     this.carry.syncVisuals(alpha);
     this.syncEnemies(alpha);
     this.combat.projectiles.sync();
     this.renderPos.copy(this.player.object!.position);
+
+    // Dissolve whatever is standing between the camera and the player. Uses the
+    // interpolated render position, not the simulation one, or the hole lags a
+    // frame behind the thing it is supposed to be revealing.
+    this.map.setFocus(this.renderPos.x, 0.9, this.renderPos.z);
 
     this.rig.setRumble(this.stampedeRumble());
     // The camera runs on real time, not simulation time — it must keep moving
@@ -534,7 +571,8 @@ export class Game {
     this.lighting.follow(this.renderPos.x, this.renderPos.z);
     this.beacon.update(this.extraction.progress, this.extraction.inside, Time.real);
 
-    this.renderer.render(this.scene, this.rig.camera);
+    this.post.render(Time.real);
+    this.updateMarkers();
 
     this.hud.update({
       crates: this.ledger.crates,
@@ -548,10 +586,6 @@ export class Game {
       ammo: this.loadout.ammo,
       hp: this.mission.rules.death === 'health' ? this.hp : null,
       maxHp: MAX_HP,
-      distanceToPad: Math.hypot(
-        this.extraction.x - this.player.x,
-        this.extraction.z - this.player.z,
-      ),
     });
     this.debug.update(realDt, () => this.debugText());
   };
@@ -572,6 +606,61 @@ export class Game {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }
+
+  /**
+   * Decide what deserves an arrow at the edge of the screen.
+   *
+   * `EdgeMarkers` does the projection and the clamping; choosing what is worth
+   * pointing at is a game decision, so it lives here. The ordering below is the
+   * priority order: the user's files first, then where they have to take them,
+   * then what is trying to stop them.
+   */
+  private updateMarkers(): void {
+    const camera = this.rig.camera;
+    this.markers.begin();
+
+    if (this.state === 'playing') {
+      // A bleeding-out file, with its countdown on the arrow. This is the only
+      // marker carrying a number that is still moving, because it is the only
+      // one where being a second late is the difference between a commit and
+      // an unstage.
+      for (const crate of this.carry.crates) {
+        const record = crate.record;
+        if (record.state !== 'dropped') continue;
+        this.markers.add(camera, crate.x, crate.z, 'cargo', `${record.decay.toFixed(1)}s`);
+      }
+
+      this.markers.add(
+        camera,
+        this.extraction.x,
+        this.extraction.z,
+        'objective',
+        `${Math.hypot(this.extraction.x - this.player.x, this.extraction.z - this.player.z).toFixed(0)}m`,
+      );
+
+      // The herd collapses to a single arrow. Twenty-five individual markers
+      // for a stampede is a solid bar of orange that tells you nothing; one
+      // arrow at the herd's centre of mass tells you the lane to leave.
+      let broX = 0;
+      let broZ = 0;
+      let broCount = 0;
+      for (const enemy of this.combat.enemies) {
+        if (enemy.dying) continue;
+        if (enemy instanceof AiBro) {
+          broX += enemy.x;
+          broZ += enemy.z;
+          broCount++;
+          continue;
+        }
+        this.markers.add(camera, enemy.x, enemy.z, 'hostile');
+      }
+      if (broCount > 0) {
+        this.markers.add(camera, broX / broCount, broZ / broCount, 'herd', `×${broCount}`);
+      }
+    }
+
+    this.markers.end(window.innerWidth, window.innerHeight);
   }
 
   /**

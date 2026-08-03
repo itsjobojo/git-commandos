@@ -17,10 +17,27 @@ export interface HudState {
   /** null unless the death rule is `health`. */
   hp: number | null;
   maxHp: number;
-  distanceToPad: number;
 }
 
 type FlashKind = 'good' | 'warn' | 'bad' | 'info';
+
+/**
+ * Type scale and safe margins.
+ *
+ * The HUD was set in 10–12px throughout, which is below the floor for anything
+ * you have to read while moving, and pinned 18px from the window edge — about
+ * 1.2% inset, well inside the region a TV or an overscanning display will clip.
+ * These are `clamp`ed against viewport units so the HUD grows on a large
+ * display instead of shrinking into it, and both ends are bounded so it never
+ * collapses on a small window or swallows the screen on a huge one.
+ */
+const SAFE = 'clamp(20px, 3vmin, 46px)';
+/** Ammo — critical, read at a glance mid-fight. */
+const TITLE = 'clamp(19px, 2.1vmin, 30px)';
+/** Filenames, timers, load. Everything you actually parse. */
+const BODY = 'clamp(14px, 1.35vmin, 19px)';
+/** Section captions only. Never carries information on its own. */
+const CAPTION = 'clamp(11px, 1.05vmin, 14px)';
 
 const STATE_STYLE: Record<CrateState, { colour: string; mark: string; note: string }> = {
   world: { colour: '#6b7d79', mark: '▫', note: 'on the map' },
@@ -50,6 +67,9 @@ export class Hud {
   private readonly barFill: HTMLDivElement;
   private readonly barLabel: HTMLDivElement;
   private readonly status: HTMLDivElement;
+  private readonly ammoLine: HTMLDivElement;
+  private readonly loadLine: HTMLDivElement;
+  private readonly hpLine: HTMLDivElement;
   private readonly flashes: HTMLDivElement;
   private readonly banners: HTMLDivElement;
   private readonly rows = new Map<
@@ -68,19 +88,20 @@ export class Hud {
 
     this.manifest = el(
       'div',
-      `position:absolute; left:18px; bottom:18px; font:12px/1.7 var(--font-mono);
-       text-shadow:0 1px 2px rgba(0,0,0,.9); min-width:210px;`,
+      `position:absolute; left:${SAFE}; bottom:${SAFE}; font:${BODY}/1.65 var(--font-mono);
+       text-shadow:0 1px 3px rgba(0,0,0,.95); min-width:min(260px, 26vw);`,
     );
 
     this.bar = el(
       'div',
-      `position:absolute; left:50%; bottom:56px; transform:translateX(-50%);
-       width:min(420px, 60vw); opacity:0; transition:opacity .18s ease;`,
+      `position:absolute; left:50%; bottom:calc(${SAFE} + 4.5vmin); transform:translateX(-50%);
+       width:min(460px, 56vw); opacity:0; transition:opacity .18s ease;`,
     );
     this.barLabel = el(
       'div',
-      `text-align:center; font:11px/1.6 var(--font-mono); letter-spacing:.16em;
-       text-transform:uppercase; color:#8fd9ac; margin-bottom:6px;`,
+      `text-align:center; font:${BODY}/1.6 var(--font-mono); letter-spacing:.16em;
+       text-transform:uppercase; color:#9ce6b8; margin-bottom:7px;
+       text-shadow:0 1px 3px rgba(0,0,0,.95);`,
     );
     const track = el(
       'div',
@@ -90,11 +111,24 @@ export class Hud {
     track.appendChild(this.barFill);
     this.bar.append(this.barLabel, track);
 
+    // Ammo is the one number you check mid-fight without taking your eyes off
+    // the fight, so it gets real size instead of being a clause in a run-on
+    // sentence set in 12px grey. Distance to the beacon left this block
+    // entirely — the objective marker carries it now, and repeating it here
+    // was two places to read the same fact.
     this.status = el(
       'div',
-      `position:absolute; right:18px; bottom:18px; text-align:right;
-       font:12px/1.7 var(--font-mono); color:#5c7180; text-shadow:0 1px 2px rgba(0,0,0,.9);`,
+      `position:absolute; right:${SAFE}; bottom:${SAFE}; text-align:right;
+       text-shadow:0 1px 3px rgba(0,0,0,.95);`,
     );
+    this.ammoLine = el(
+      'div',
+      `font:600 ${TITLE}/1.15 var(--font-mono); letter-spacing:.06em;
+       text-transform:uppercase; color:#dbe7e4;`,
+    );
+    this.hpLine = el('div', `font:${BODY}/1.5 var(--font-mono); letter-spacing:.18em; color:#f87171;`);
+    this.loadLine = el('div', `font:${BODY}/1.55 var(--font-mono); color:#93a9b6;`);
+    this.status.append(this.ammoLine, this.hpLine, this.loadLine);
 
     // Banners sit above the flash lane so an arriving event never gets buried
     // under a run of cargo notifications.
@@ -106,7 +140,7 @@ export class Hud {
     this.flashes = el(
       'div',
       `position:absolute; left:50%; top:26%; transform:translateX(-50%); text-align:center;
-       font:13px/1.9 var(--font-mono); letter-spacing:.12em;
+       font:600 ${BODY}/1.9 var(--font-mono); letter-spacing:.12em;
        text-shadow:0 2px 6px rgba(0,0,0,.95);`,
     );
 
@@ -121,7 +155,8 @@ export class Hud {
     this.manifest.appendChild(
       el(
         'div',
-        'color:#5c7180; font-size:10px; letter-spacing:.16em; text-transform:uppercase; margin-bottom:4px;',
+        `color:#93a9b6; font-size:${CAPTION}; letter-spacing:.16em;
+         text-transform:uppercase; margin-bottom:5px;`,
         'cargo',
       ),
     );
@@ -131,7 +166,7 @@ export class Hud {
       const row = el('div', 'display:flex; gap:8px; align-items:baseline; transition:color .2s;');
       const label = el('span', 'flex:1;');
       label.textContent = `▪ ${basename(file.name)}`;
-      const timer = el('span', 'font-size:11px; opacity:.9;');
+      const timer = el('span', `font-size:${CAPTION}; opacity:.95;`);
       row.title = file.name;
       row.append(label, timer);
 
@@ -245,14 +280,28 @@ export class Hud {
       : 'extraction paused — return to the beacon';
     this.barFill.style.background = state.inside ? '#4ade80' : '#8fa3ae';
 
+    this.status.style.display = state.progress >= 1 ? 'none' : 'block';
+    if (state.progress >= 1) return;
+
+    this.ammoLine.textContent = `${state.weapon.toUpperCase()}  ${state.ammo === null ? '∞' : state.ammo}`;
+    // Running dry is a state change you need to notice before it happens, not
+    // after the gun stops. Colour is a second channel here, never the only one
+    // — the number itself is the signal.
+    const dry = state.ammo !== null && state.ammo <= 10;
+    this.ammoLine.style.color = dry ? '#f87171' : '#dbe7e4';
+
+    if (state.hp === null) {
+      this.hpLine.style.display = 'none';
+    } else {
+      this.hpLine.style.display = 'block';
+      const full = Math.max(0, state.hp);
+      this.hpLine.textContent = `${'●'.repeat(full)}${'○'.repeat(Math.max(0, state.maxHp - full))}`;
+      this.hpLine.style.color = full <= 1 ? '#f87171' : '#fbbf24';
+    }
+
     const slowdown = Math.round((1 - state.loadFactor) * 100);
-    const bits = [
-      `${state.weapon.toLowerCase()} ${state.ammo === null ? '∞' : state.ammo}`,
-      `beacon ${state.distanceToPad.toFixed(0)}m`,
-      `carrying ${state.carrying}${slowdown > 0 ? ` (−${slowdown}% speed)` : ''}`,
-    ];
-    if (state.hp !== null) bits.push(`hp ${'●'.repeat(Math.max(0, state.hp))}${'○'.repeat(Math.max(0, state.maxHp - state.hp))}`);
-    this.status.textContent = state.progress >= 1 ? '' : bits.join(' · ');
+    this.loadLine.textContent =
+      `carrying ${state.carrying}` + (slowdown > 0 ? ` · −${slowdown}% speed` : '');
   }
 
   dispose(): void {

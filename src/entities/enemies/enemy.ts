@@ -33,9 +33,17 @@ export interface EnemyContext {
     life?: number;
     radius?: number;
     homing?: number;
+    /** Draw this shot as an Outlook icon rather than a tracer. */
+    invite?: boolean;
   }): void;
-  /** Ask to land a hit on the player. Returns true if it actually landed. */
-  hitPlayer(): boolean;
+  /**
+   * Ask to land a hit on the player. Returns true if it actually landed.
+   *
+   * The world position the hit came from travels with it so the HUD can tell
+   * the player which way to look. Most of what hits you is off screen, so
+   * "you took a hit" on its own leaves you spinning to find the source.
+   */
+  hitPlayer(sourceX: number, sourceZ: number): boolean;
   shake(amount: number): void;
   /** Lob an invite bomb at a ground position. */
   throwBomb(fromX: number, fromZ: number, toX: number, toZ: number): void;
@@ -91,7 +99,7 @@ export abstract class Enemy extends Entity {
     if (this.touchCooldown > 0) return;
     const d = Math.hypot(ctx.playerX - this.x, ctx.playerZ - this.z);
     if (d > this.radius + reach + 0.55) return;
-    if (ctx.hitPlayer()) this.touchCooldown = 1.2;
+    if (ctx.hitPlayer(this.x, this.z)) this.touchCooldown = 1.2;
   }
 
   /**
