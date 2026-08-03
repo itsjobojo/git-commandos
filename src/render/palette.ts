@@ -29,8 +29,10 @@ export const PALETTE = {
   stash: 0xa78bfa,
 
   extraction: 0x4ade80,
+  /** Mandatory meetings — a shelter you're compelled to visit. */
   meeting: 0xfbbf24,
-  meetingOptional: 0x6b7d79,
+  /** Avoid blobs — step in and you're in molasses. */
+  meetingAvoid: 0xef4444,
 
   hostile: 0xf472b6,
   bro: 0xfb923c,

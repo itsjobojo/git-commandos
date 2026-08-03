@@ -44,10 +44,16 @@ export class Player extends Entity {
   /** How many crates are on your back — slows you and scales threat. */
   carrying = 0;
   /**
-   * Speed multiplier imposed from outside — currently meeting rings.
+   * Speed multiplier imposed from outside — currently avoid blobs.
    * 1 = unaffected.
    */
   externalSlow = 1;
+  /**
+   * Seconds of shelter remaining. Enemy fire cannot touch you while this is
+   * running: it's topped up continuously inside a mandatory meeting, and a
+   * grace period carries out with you when you leave.
+   */
+  shelterTimer = 0;
 
   rollTimer = 0;
   rollCooldown = 0;
@@ -108,8 +114,13 @@ export class Player extends Entity {
     return this.rollTimer > 0;
   }
 
+  get sheltered(): boolean {
+    return this.shelterTimer > 0;
+  }
+
+  /** Dodge i-frames or meeting shelter — either way, nothing lands. */
   get invulnerable(): boolean {
-    return this.invulnTimer > 0;
+    return this.invulnTimer > 0 || this.shelterTimer > 0;
   }
 
   /** 1 = unencumbered, falling toward 0.58 as the stack grows. */
@@ -127,6 +138,7 @@ export class Player extends Entity {
 
     this.rollCooldown = Math.max(0, this.rollCooldown - dt);
     this.invulnTimer = Math.max(0, this.invulnTimer - dt);
+    this.shelterTimer = Math.max(0, this.shelterTimer - dt);
 
     if (i.dodge && this.rollTimer <= 0 && this.rollCooldown <= 0) this.startRoll(i);
 

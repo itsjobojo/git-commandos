@@ -131,7 +131,7 @@ export class Director {
       const x = mandatory ? ctx.playerX : ctx.playerX + this.rng.range(-14, 14);
       const z = mandatory ? ctx.playerZ : ctx.playerZ + this.rng.range(-14, 14);
       if (!this.grid.isSolidWorld(x, z)) {
-        this.meetings.schedule(this.rng, mandatory ? 'mandatory' : 'optional', x, z);
+        this.meetings.schedule(this.rng, mandatory ? 'mandatory' : 'avoid', x, z);
       }
       enemy.resetSchedule(this.rng.range(9, 15));
     }

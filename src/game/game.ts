@@ -17,7 +17,7 @@ import { CargoLedger } from '../systems/cargo-ledger';
 import { CarrySystem } from '../systems/carry';
 import { CombatSystem } from '../systems/combat';
 import { Faction } from '../systems/projectiles';
-import { MEETING_SLOW, MeetingSystem } from '../systems/meetings';
+import { MEETING_SLOW, SHELTER_GRACE, MeetingSystem } from '../systems/meetings';
 import { Director } from './director';
 import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
@@ -230,10 +230,14 @@ export class Game {
 
     this.updateAim(intent.usingGamepad, intent.stickAimX, intent.stickAimZ, intent.pointerX, intent.pointerY);
 
-    // Being in a meeting slows you to a crawl and blocks pickups. It is a tax
-    // you choose to pay, not a hazard you always dodge.
-    const detained = this.meetings.isPlayerDetained(this.player.x, this.player.z);
-    this.player.externalSlow = detained ? MEETING_SLOW : 1;
+    // Mandatory meetings shelter you from fire; avoid blobs bog you down.
+    // Neither does damage — they cost you time, which during an extraction is
+    // the more expensive currency anyway.
+    const standingIn = this.meetings.current(this.player.x, this.player.z);
+    const inAvoid = standingIn?.kind === 'avoid';
+    const inShelter = standingIn?.kind === 'mandatory';
+    this.player.externalSlow = inAvoid ? MEETING_SLOW : 1;
+    if (inShelter) this.player.shelterTimer = Math.max(this.player.shelterTimer, 0.2);
 
     this.player.savePrevious();
     this.player.intent = intent;
@@ -241,11 +245,12 @@ export class Game {
     this.player.aimZ = this.aim.z;
     this.player.tick(dt);
 
-    if (!detained) this.carry.update(dt, this.player, intent);
+    // You can still work inside a shelter — it's the avoid blob that pins you.
+    if (!inAvoid) this.carry.update(dt, this.player, intent);
 
     this.combat.update(dt, this.player, this.enemyContext(), intent.fire, this.scene);
     this.meetings.update(dt, this.player.x, this.player.z, Time.real, {
-      onAttended: (m) => this.hud.flash(`ATTENDED ${m.title}`, 'info'),
+      onAttended: (m) => this.onAttendedMeeting(m.title),
       onMissed: (m) => this.onMissedMeeting(m.title),
     });
     this.director.update(dt, {
@@ -292,6 +297,21 @@ export class Game {
     }
     if (enemy instanceof OutlookSwarm) this.hud.flash('INVITE SERIES CANCELLED', 'good');
     if (enemy instanceof MeetingOrganizer) this.hud.flash('NO FURTHER MEETINGS SCHEDULED', 'good');
+  }
+
+  /**
+   * Sitting through a mandatory meeting is the one thing in the game that
+   * gives something back: a grace shield on the way out, and a point of health
+   * when the death rule has any to give.
+   */
+  private onAttendedMeeting(title: string): void {
+    this.player.shelterTimer = Math.max(this.player.shelterTimer, SHELTER_GRACE);
+    if (this.mission.rules.death === 'health' && this.hp < MAX_HP) {
+      this.hp += 1;
+      this.hud.flash(`ATTENDED ${title} — +1 HP, ${SHELTER_GRACE}s COVER`, 'good');
+      return;
+    }
+    this.hud.flash(`ATTENDED ${title} — ${SHELTER_GRACE}s COVER`, 'good');
   }
 
   /** Missing a mandatory meeting costs you a crate. */
