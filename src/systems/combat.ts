@@ -64,10 +64,67 @@ export class CombatSystem {
       enemy.think(dt, ctx);
     }
 
+    this.separate(player);
     this.applyShoves(player);
     this.projectiles.update(dt, this.grid, player.x, player.z);
     this.resolveHits(player);
     this.reap(scene, dt);
+  }
+
+  /**
+   * Push overlapping bodies apart.
+   *
+   * Without this they converge to the same point and stack, so a pack reads as
+   * a single enemy — one of them is simply inside another and invisible. Three
+   * relaxation passes settles a rushing pack without letting a crowd jitter;
+   * the grid gets the final say so nothing is ever shoved into a wall.
+   */
+  private separate(player: Player): void {
+    const live = this.enemies.filter((e) => !e.dying);
+
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 0; i < live.length; i++) {
+        for (let j = i + 1; j < live.length; j++) {
+          const a = live[i];
+          const b = live[j];
+          const minimum = a.radius + b.radius;
+          let dx = b.x - a.x;
+          let dz = b.z - a.z;
+          let distance = Math.hypot(dx, dz);
+
+          if (distance >= minimum) continue;
+          if (distance < 1e-4) {
+            // Exactly coincident — nudge along an arbitrary but stable axis.
+            dx = (a.id % 2 === 0 ? 1 : -1) * 0.01;
+            dz = 0.01;
+            distance = Math.hypot(dx, dz);
+          }
+
+          const push = (minimum - distance) * 0.5;
+          const nx = (dx / distance) * push;
+          const nz = (dz / distance) * push;
+          a.x -= nx;
+          a.z -= nz;
+          b.x += nx;
+          b.z += nz;
+        }
+      }
+    }
+
+    for (const enemy of live) {
+      // Don't let anything stand inside the player either — being unable to
+      // see what's hitting you is the same bug from the other direction.
+      const dx = enemy.x - player.x;
+      const dz = enemy.z - player.z;
+      const minimum = enemy.radius + player.radius;
+      const distance = Math.hypot(dx, dz);
+      if (distance < minimum && distance > 1e-4) {
+        const push = minimum - distance;
+        enemy.x += (dx / distance) * push;
+        enemy.z += (dz / distance) * push;
+      }
+      this.grid.resolveCircle(enemy, enemy.radius);
+    }
   }
 
   private updatePlayerFire(dt: number, player: Player, firing: boolean): void {

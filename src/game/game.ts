@@ -23,6 +23,7 @@ import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
 import { OutlookSwarm } from '../entities/enemies/outlook';
 import { Recruiter } from '../entities/enemies/recruiter';
+import { Intern } from '../entities/enemies/intern';
 import type { Enemy, EnemyContext } from '../entities/enemies/enemy';
 import { DebugOverlay } from '../ui/debug';
 import { Hud } from '../ui/hud';
@@ -440,6 +441,7 @@ export class Game {
       else if (enemy instanceof OutlookSwarm) enemy.syncOutlook(alpha);
       else if (enemy instanceof MeetingOrganizer) enemy.syncOrganizer(alpha);
       else if (enemy instanceof Recruiter) enemy.syncRecruiter(alpha);
+      else if (enemy instanceof Intern) enemy.syncIntern(alpha);
       else enemy.syncObject(alpha, 0);
 
       // The death animation owns the scale while dying; don't fight it.

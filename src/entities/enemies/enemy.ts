@@ -129,8 +129,22 @@ export abstract class Enemy extends Entity {
     if (attempt(stepX, 0) >= meaningful) return;
     if (attempt(0, stepZ) >= meaningful) return;
 
-    // Boxed in on both axes — stay put rather than jittering.
+    // Both axes blocked: the target is through a corner or round a bend, and
+    // an enemy with no pathfinding would simply stand there forever. Sidestep
+    // instead — over a few steps that walks it around the obstruction.
+    const perpX = -stepZ;
+    const perpZ = stepX;
+    this.sidestep = this.sidestep === 0 ? (this.id % 2 === 0 ? 1 : -1) : this.sidestep;
+    if (attempt(perpX * this.sidestep, perpZ * this.sidestep) >= meaningful) return;
+    // That side is blocked too — try the other, and keep going that way.
+    this.sidestep *= -1;
+    if (attempt(perpX * this.sidestep, perpZ * this.sidestep) >= meaningful) return;
+
+    // Genuinely boxed in. Stay put rather than jittering.
     this.x = startX;
     this.z = startZ;
   }
+
+  /** Which way this body prefers to slip past an obstruction. */
+  private sidestep = 0;
 }

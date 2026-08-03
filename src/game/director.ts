@@ -3,6 +3,7 @@ import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
 import { OutlookSwarm } from '../entities/enemies/outlook';
 import { Recruiter } from '../entities/enemies/recruiter';
+import { Intern } from '../entities/enemies/intern';
 import type { CombatSystem } from '../systems/combat';
 import type { MeetingSystem } from '../systems/meetings';
 import type { Rng } from '../core/rng';
@@ -35,6 +36,7 @@ export interface DirectorContext {
  */
 export class Director {
   private recruiterTimer = 6;
+  private internTimer = 16;
   private organizerSpawned = false;
   private outlookSpawned = false;
   private stampedeReleased = false;
@@ -57,6 +59,7 @@ export class Director {
     this.elapsed += dt;
 
     this.updateRecruiters(dt, ctx);
+    this.updateInterns(dt, ctx);
     this.updateOrganizer(ctx);
     this.updateOutlook(ctx);
     this.updateStampede(dt, ctx);
@@ -76,6 +79,27 @@ export class Director {
     // The more you're carrying, the more interest you attract.
     const pressure = 1 + ctx.carrying * 0.25 + this.intensity * 0.4;
     this.recruiterTimer = this.rng.range(10, 16) / pressure;
+  }
+
+  /**
+   * Interns arrive in packs. One is nothing; four coming at you while a
+   * Recruiter holds range is the pincer the two archetypes exist to create.
+   */
+  private updateInterns(dt: number, ctx: DirectorContext): void {
+    this.internTimer -= dt;
+    if (this.internTimer > 0) return;
+    if (this.combat.liveEnemies >= MAX_LIVE_ENEMIES) return;
+
+    const packSize = 2 + this.rng.int(0, 2 + Math.round(this.intensity * 2));
+    const anchor = this.spawnPoint(ctx);
+    for (let i = 0; i < packSize; i++) {
+      const intern = new Intern(this.rng);
+      const spot = this.openNear(anchor.x, anchor.z, 4);
+      intern.setPosition(spot.x, spot.z);
+      this.grid.resolveCircle(intern, intern.radius);
+      this.combat.add(intern, this.scene);
+    }
+    this.internTimer = this.rng.range(14, 22) / (1 + this.intensity * 0.5);
   }
 
   private updateOrganizer(ctx: DirectorContext): void {
