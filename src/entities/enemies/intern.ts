@@ -1,6 +1,8 @@
-import { CapsuleGeometry, ConeGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
+import { ConeGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
 import { SpeechBubble } from '../../render/bubble';
+import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
+import { CAST } from '../../render/cast';
 import { PALETTE } from '../../render/palette';
 
 const SPEED = 7.4;
@@ -39,25 +41,20 @@ export class Intern extends Enemy {
 
   private readonly bubble = new SpeechBubble();
   private talkTimer: number;
-  private readonly body: Mesh;
-  private bobPhase: number;
+  private readonly rig: Humanoid;
 
   constructor(rng: { range: (a: number, b: number) => number }) {
     super();
+    // Two draws, in this order. The map and every line of dialogue come off the
+    // same seeded stream, so adding, dropping or reordering a draw here changes
+    // the whole mission for a given commit message.
     this.talkTimer = rng.range(1, TALK_INTERVAL[1]);
-    this.bobPhase = rng.range(0, Math.PI * 2);
+    // Smaller than everything else, so a pack reads as a pack. The phase offset
+    // is what stops a pack marching in lockstep.
+    this.rig = createHumanoid(CAST.intern, rng.range(0, Math.PI * 2));
 
-    const material = new MeshStandardMaterial({
-      color: 0x9ca9c9,
-      roughness: 0.75,
-      flatShading: true,
-    });
-
-    // Smaller than everything else, so a pack reads as a pack.
-    this.body = new Mesh(new CapsuleGeometry(0.3, 0.56, 4, 8), material);
-    this.body.position.y = 0.62;
-    this.body.castShadow = true;
-
+    // Kept as its own mesh: it's the only thing on an intern that glows, and
+    // emissive is a material uniform, so it cannot be merged into the body.
     const lanyard = new Mesh(
       new ConeGeometry(0.16, 0.3, 4),
       new MeshStandardMaterial({
@@ -66,11 +63,12 @@ export class Intern extends Enemy {
         emissiveIntensity: 0.4,
       }),
     );
-    lanyard.position.set(0.16, 0.72, 0);
+    lanyard.position.set(0.04, -0.1, 0);
     lanyard.rotation.z = Math.PI;
+    this.rig.parts.chest.add(lanyard);
 
     this.bubble.sprite.position.set(0, 1.35, 0);
-    this.group.add(this.body, lanyard, this.bubble.sprite);
+    this.group.add(this.rig.group, this.bubble.sprite);
     this.object = this.group;
   }
 
@@ -89,14 +87,13 @@ export class Intern extends Enemy {
     }
 
     this.tryTouch(ctx);
-    this.bobPhase += dt * (distance < LUNGE_RANGE ? 17 : 11);
+    advanceGait(this.rig, dt, Math.hypot(this.x - this.px, this.z - this.pz) / dt);
   }
 
   syncIntern(alpha: number): void {
     super.syncObject(alpha, 0);
     this.group.rotation.y = -this.yaw;
-    // Eager little scurry.
-    this.body.position.y = 0.62 + Math.abs(Math.sin(this.bobPhase)) * 0.11;
+    poseHumanoid(this.rig);
   }
 
   dispose(): void {

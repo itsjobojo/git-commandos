@@ -1,8 +1,9 @@
-import { BoxGeometry, CapsuleGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
+import { Group } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
 import { SpeechBubble } from '../../render/bubble';
 import { AI_BRO_LINES } from './ai-bro-lines';
-import { PALETTE } from '../../render/palette';
+import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
+import { CAST } from '../../render/cast';
 
 /**
  * Slower than the player's base 8.2, so a stampede is something you can read
@@ -39,8 +40,7 @@ export class AiBro extends Enemy {
 
   private readonly bubble = new SpeechBubble();
   private talkTimer: number;
-  private readonly body: Mesh;
-  private bobPhase = 0;
+  private readonly rig: Humanoid;
   /** Rises when a herd-mate is killed — "he's just early". */
   private urgency = 1;
   /**
@@ -69,37 +69,20 @@ export class AiBro extends Enemy {
 
   constructor(rng: { range: (a: number, b: number) => number }) {
     super();
+    // Three draws, in this order. The map and every line come off the same
+    // seeded stream, so reordering them changes the whole mission for a given
+    // commit message.
     this.talkTimer = rng.range(0.2, TALK_INTERVAL[1]);
-    this.bobPhase = rng.range(0, Math.PI * 2);
+    // The phase offset is what stops a herd jogging in lockstep. The laptop —
+    // permanently open, carried like a clipboard — and the backwards cap live
+    // in the cast spec.
+    this.rig = createHumanoid(CAST['ai-bro'], rng.range(0, Math.PI * 2));
     this.vocal = rng.range(0, 1) < 0.3;
-
-    const quarterZip = new MeshStandardMaterial({
-      color: PALETTE.bro,
-      roughness: 0.72,
-      flatShading: true,
-    });
-    const trousers = new MeshStandardMaterial({
-      color: 0x2b2f38,
-      roughness: 0.85,
-      flatShading: true,
-    });
-
-    this.body = new Mesh(new CapsuleGeometry(0.44, 0.78, 4, 10), quarterZip);
-    this.body.position.y = 0.88;
-    this.body.castShadow = true;
-
-    // A laptop, permanently open, carried like a clipboard.
-    const laptop = new Mesh(new BoxGeometry(0.52, 0.06, 0.4), trousers);
-    laptop.position.set(0.42, 0.98, 0);
-    laptop.rotation.z = -0.35;
-
-    const legs = new Mesh(new BoxGeometry(0.4, 0.5, 0.5), trousers);
-    legs.position.y = 0.26;
 
     // Clear of the body, so a bigger bubble doesn't sit on top of the bro.
     this.bubble.sprite.position.set(0, 2.05, 0);
 
-    this.group.add(this.body, laptop, legs, this.bubble.sprite);
+    this.group.add(this.rig.group, this.bubble.sprite);
     this.object = this.group;
   }
 
@@ -156,7 +139,7 @@ export class AiBro extends Enemy {
     }
 
     this.shove(ctx);
-    this.bobPhase += dt * 15;
+    advanceGait(this.rig, dt, Math.hypot(this.x - this.px, this.z - this.pz) / dt);
   }
 
   /**
@@ -184,9 +167,9 @@ export class AiBro extends Enemy {
   syncBro(alpha: number): void {
     super.syncObject(alpha, 0);
     this.group.rotation.y = -this.yaw;
-    // Earnest, slightly too-fast jog.
-    this.body.position.y = 0.88 + Math.abs(Math.sin(this.bobPhase)) * 0.09;
-    this.body.rotation.z = Math.sin(this.bobPhase) * 0.06;
+    // Earnest, slightly too-fast jog — the widest stride and heaviest sway in
+    // the cast, tuned in `cast.ts`.
+    poseHumanoid(this.rig);
   }
 
   dispose(): void {

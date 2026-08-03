@@ -1,5 +1,7 @@
-import { ConeGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
+import { CylinderGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
+import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
+import { CAST } from '../../render/cast';
 import { PALETTE } from '../../render/palette';
 
 const KEEP_DISTANCE = 15;
@@ -23,23 +25,17 @@ export class MeetingOrganizer extends Enemy {
   scheduleTimer = 6;
   private spin = 0;
   private readonly disc: Mesh;
+  private readonly rig: Humanoid;
 
   constructor() {
     super();
 
-    const material = new MeshStandardMaterial({
-      color: PALETTE.meeting,
-      emissive: PALETTE.meeting,
-      emissiveIntensity: 0.28,
-      roughness: 0.55,
-      flatShading: true,
-    });
+    // Robed and cowled, both hands clasped: no legs, no stride, it glides.
+    this.rig = createHumanoid(CAST.organizer, (this.id * 2.399963) % (Math.PI * 2));
 
-    const body = new Mesh(new ConeGeometry(0.5, 1.5, 6), material);
-    body.position.y = 0.9;
-    body.castShadow = true;
-
-    // A slowly rotating calendar disc — you can spot it across the map.
+    // A slowly rotating calendar disc — you can spot it across the map. It
+    // stays a child of the group rather than the rig, so it does not inherit
+    // the glide: a calendar that floats free of its owner is the read.
     this.disc = new Mesh(
       new CylinderGeometry(0.85, 0.85, 0.08, 6),
       new MeshStandardMaterial({
@@ -52,7 +48,7 @@ export class MeetingOrganizer extends Enemy {
     );
     this.disc.position.y = 1.95;
 
-    this.group.add(body, this.disc);
+    this.group.add(this.rig.group, this.disc);
     this.object = this.group;
   }
 
@@ -76,6 +72,10 @@ export class MeetingOrganizer extends Enemy {
     this.yaw = Math.atan2(dz, dx);
 
     if (this.scheduleTimer > 0) this.scheduleTimer -= dt;
+
+    // Ground actually covered: it skips `moveToward` entirely while holding its
+    // band, which would leave a stale velocity gliding forever.
+    advanceGait(this.rig, dt, Math.hypot(this.x - this.px, this.z - this.pz) / dt);
   }
 
   /** True when it wants to place a meeting; the director does the placing. */
@@ -91,5 +91,6 @@ export class MeetingOrganizer extends Enemy {
     super.syncObject(alpha, 0);
     this.group.rotation.y = -this.yaw;
     this.disc.rotation.y = this.spin;
+    poseHumanoid(this.rig);
   }
 }

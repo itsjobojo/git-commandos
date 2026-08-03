@@ -1,7 +1,8 @@
-import { BoxGeometry, CapsuleGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
+import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
 import { SpeechBubble } from '../../render/bubble';
-import { PALETTE } from '../../render/palette';
+import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
+import { CAST } from '../../render/cast';
 
 const IDLE_SPEED = 2.2;
 const STRAFE_SPEED = 5.4;
@@ -57,31 +58,40 @@ export class Recruiter extends Enemy {
   private lastZ = 0;
   private readonly bubble = new SpeechBubble();
   private wander = { x: 0, z: 0, timer: 0 };
+  private readonly rig: Humanoid;
 
   constructor() {
     super();
 
-    const suit = new MeshStandardMaterial({
-      color: PALETTE.hostile,
-      roughness: 0.6,
-      flatShading: true,
-    });
-    const body = new Mesh(new CapsuleGeometry(0.36, 0.72, 4, 8), suit);
-    body.position.y = 0.8;
-    body.castShadow = true;
-
-    const phone = new Mesh(
-      new BoxGeometry(0.18, 0.3, 0.05),
+    // The right arm is frozen mid-call rather than swinging: it costs two
+    // fewer draw calls than an articulated one and says more about the
+    // character than any amount of animation would. The phone body is merged
+    // into that arm in `cast.ts`; only the screen is its own mesh, because
+    // emissive is a material uniform and cannot be merged.
+    this.rig = createHumanoid(CAST.recruiter, (this.id * 2.399963) % (Math.PI * 2));
+    const screen = new Mesh(
+      new BoxGeometry(0.012, 0.13, 0.07),
       new MeshStandardMaterial({ color: 0x0d1117, emissive: 0x2b7fff, emissiveIntensity: 0.5 }),
     );
-    phone.position.set(0.3, 1.05, 0);
+    screen.position.set(0.048, 0, 0);
+    this.rig.parts.rightHand.add(screen);
 
     this.bubble.sprite.position.set(0, 1.7, 0);
-    this.group.add(body, phone, this.bubble.sprite);
+    this.group.add(this.rig.group, this.bubble.sprite);
     this.object = this.group;
   }
 
+  /**
+   * Split from `decide` so the gait advances on every path out of it — the
+   * disinterested drift and the two blocked-shot returns included. A recruiter
+   * whose legs stop the moment it declines to shoot skates across the map.
+   */
   think(dt: number, ctx: EnemyContext): void {
+    this.decide(dt, ctx);
+    advanceGait(this.rig, dt, Math.hypot(this.x - this.px, this.z - this.pz) / dt);
+  }
+
+  private decide(dt: number, ctx: EnemyContext): void {
     super.tick(dt);
     this.bubble.update(dt);
     this.shotTimer -= dt;
@@ -207,6 +217,7 @@ export class Recruiter extends Enemy {
   syncRecruiter(alpha: number): void {
     super.syncObject(alpha, 0);
     this.group.rotation.y = -this.yaw;
+    poseHumanoid(this.rig);
   }
 
   dispose(): void {

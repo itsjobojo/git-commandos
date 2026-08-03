@@ -1,14 +1,8 @@
-import {
-  BoxGeometry,
-  CapsuleGeometry,
-  ConeGeometry,
-  Group,
-  Mesh,
-  MeshStandardMaterial,
-  Object3D,
-} from 'three';
+import { ConeGeometry, Group, Mesh, MeshStandardMaterial, Object3D } from 'three';
 import { Entity, angleDelta } from './entity';
 import { createWeaponModel } from '../render/weapon-models';
+import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../render/humanoid';
+import { CAST } from '../render/cast';
 import type { WeaponId } from '../systems/weapons';
 import { PALETTE } from '../render/palette';
 import type { Grid } from '../world/grid';
@@ -64,7 +58,7 @@ export class Player extends Entity {
   private rollDirZ = 0;
 
   readonly cargoAnchor = new Object3D();
-  private readonly body: Mesh;
+  private readonly rig: Humanoid;
   private readonly weaponMount = new Object3D();
   private weaponModel: Group | null = null;
   private readonly root = new Group();
@@ -72,35 +66,29 @@ export class Player extends Entity {
   constructor(private readonly grid: Grid) {
     super();
 
-    const skin = new MeshStandardMaterial({
-      color: PALETTE.player,
-      emissive: PALETTE.playerDim,
-      emissiveIntensity: 0.6,
-      roughness: 0.55,
-      metalness: 0.1,
-      flatShading: true,
-    });
-    const dark = new MeshStandardMaterial({
-      color: 0x0d1a14,
-      roughness: 0.7,
-      flatShading: true,
-    });
-
-    // Placeholder silhouette. M6 swaps this for the custom hero mesh; the
-    // anchors (cargoAnchor, barrel) are the contract that survives.
-    this.body = new Mesh(new CapsuleGeometry(0.42, 0.86, 4, 10), skin);
-    this.body.position.y = 0.86;
-    this.body.castShadow = true;
-
-    const visor = new Mesh(new BoxGeometry(0.5, 0.16, 0.24), dark);
-    visor.position.set(0.22, 1.22, 0);
+    // The commando: helmet, chest rig, and a pack for the cargo to ride behind.
+    // The anchors below are the contract — cargo and weapons hang off `root`,
+    // never off the body, so the roll can squash one without deforming the
+    // others.
+    this.rig = createHumanoid(CAST.player, 0);
 
     // Weapons hang off a mount so swapping one is a model swap, not a rebuild.
-    this.weaponMount.position.set(0.5, 0.92, 0.16);
+    // Positioned where the braced right hand actually lands.
+    this.weaponMount.position.set(0.4, 0.96, 0.17);
 
     // A ground-hugging cone that always points where you're facing. Cheap, but
-    // it's the single biggest readability win on a top-down camera.
-    const chevron = new Mesh(new ConeGeometry(0.3, 0.62, 3), skin);
+    // it's the single biggest readability win on a top-down camera — a rig
+    // does not replace it.
+    const chevron = new Mesh(
+      new ConeGeometry(0.3, 0.62, 3),
+      new MeshStandardMaterial({
+        color: PALETTE.player,
+        emissive: PALETTE.playerDim,
+        emissiveIntensity: 0.6,
+        roughness: 0.55,
+        flatShading: true,
+      }),
+    );
     chevron.rotation.set(Math.PI / 2, 0, -Math.PI / 2);
     chevron.position.set(0.95, 0.08, 0);
 
@@ -109,7 +97,7 @@ export class Player extends Entity {
     // looking at yourself.
     this.cargoAnchor.position.set(-0.72, 1.05, 0);
 
-    this.root.add(this.body, visor, this.weaponMount, chevron, this.cargoAnchor);
+    this.root.add(this.rig.group, this.weaponMount, chevron, this.cargoAnchor);
     this.setWeapon('pistol');
     this.object = this.root;
   }
@@ -118,9 +106,11 @@ export class Player extends Entity {
   setWeapon(id: WeaponId): void {
     if (this.weaponModel) this.weaponMount.remove(this.weaponModel);
     this.weaponModel = createWeaponModel(id);
-    // Held smaller than the pickup version — at full size a shotgun reads as
-    // a cannon strapped to someone the size of a fire hydrant.
-    this.weaponModel.scale.setScalar(0.78);
+    // Held smaller than the pickup version — at full size a shotgun reads as a
+    // cannon strapped to someone the size of a fire hydrant. Down from 0.78
+    // now the body has a waist: against a capsule the old scale passed, but
+    // beside an actual pair of shoulders the shotgun was longer than the man.
+    this.weaponModel.scale.setScalar(0.6);
     this.weaponMount.add(this.weaponModel);
   }
 
@@ -170,6 +160,9 @@ export class Player extends Entity {
 
     this.integrate(dt);
     this.turn(dt);
+    // Ground actually covered, not intended velocity — walking into a wall
+    // must not keep the legs running.
+    advanceGait(this.rig, dt, Math.hypot(this.x - this.px, this.z - this.pz) / dt);
   }
 
   private startRoll(i: Intent): void {
@@ -225,11 +218,13 @@ export class Player extends Entity {
     super.syncObject(alpha, 0);
     this.root.rotation.y = -this.yaw;
 
-    // Roll squash — sells the dodge without an animation rig.
+    // Roll squash — sells the dodge without an animation rig. It lands on the
+    // rig group alone, so the cargo stack and the weapon ride the roll instead
+    // of deforming with it. Scaling a group whose origin is at the feet keeps
+    // the feet on the floor, which is why there's no height correction here.
     const rollT = this.rollTimer > 0 ? this.rollTimer / ROLL_DURATION : 0;
-    const squash = 1 - Math.sin(rollT * Math.PI) * 0.42;
-    this.body.scale.set(1 / squash, squash, 1 / squash);
-    this.body.position.y = 0.86 * squash;
+    const tuck = Math.sin(rollT * Math.PI);
+    poseHumanoid(this.rig, { squash: 1 - tuck * 0.42, brace: 1 - tuck });
     // Tucked away mid-roll, which is also when you can't shoot.
     this.weaponMount.visible = !this.isRolling;
   }
