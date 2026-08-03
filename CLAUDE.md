@@ -23,7 +23,7 @@ gcmds commit -m "msg" --extreme  # Extreme mode: lost files are deleted from dis
 
 `GCMDS_NO_OPEN=1` stops the server launching a browser, so the protocol can be driven headlessly in tests.
 
-`pnpm test` runs vitest. The only suite is `src/systems/cargo-ledger.test.ts` and that is deliberate — the ledger decides which of the user's files get committed, unstaged or deleted, so it is the one module that must never regress. Add to it whenever you touch cargo rules. There is no linting configured.
+`pnpm test` runs vitest. The suites are deliberately few, and cover only what fails silently or fails expensively: `src/systems/cargo-ledger.test.ts` (the ledger decides which of the user's files get committed, unstaged or deleted — the one module that must never regress; add to it whenever you touch cargo rules), `world/arena.test.ts` (an unreachable extraction costs someone their commit), `systems/meetings.test.ts`, and `assets/manifest.test.ts` (a mistyped asset path 404s quietly and nothing looks broken). There is no linting configured.
 
 ## Architecture
 
@@ -42,7 +42,8 @@ core/      loop (fixed 60Hz + interpolated render), input→intent, seeded rng, 
 render/    camera rig, lighting, floor, palette, beacon, reticle — no gameplay state
 world/     grid collision (the physics), map assembly
 entities/  Entity base + Player; enemies land in M3
-systems/   the rules: extraction now; combat, carry, vfx to come
+systems/   the rules: extraction, cargo, combat, carry, audio; vfx to come
+assets/    manifest.ts — the only file allowed to contain an asset path string
 ui/        DOM overlays — briefing, HUD, debrief, debug
 net/       protocol.ts — the only file that knows the wire format
 game/      game.ts (orchestration), mission.ts (GitContext → Mission)

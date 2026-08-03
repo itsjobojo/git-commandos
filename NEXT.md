@@ -21,7 +21,7 @@ a good chunk of M5 (maps) ahead of schedule.
 | Cargo, drop-on-hit, decay, stash | done, 50 tests |
 | Route maps, seeded and connectivity-tested | done |
 | Combat, bestiary, weapons, drops | done |
-| Audio | **not started — nothing plays** |
+| Audio | done — SFX bus, positional mix, tracker music |
 | Art pass (M6) | not started — everything is procedural |
 | README | **stale — still describes the 2D game** |
 
@@ -42,23 +42,7 @@ GCMDS_NO_OPEN=1 node cli/index.mjs commit -m "x"   # drive the protocol headless
 
 ## Next steps, in the order I'd take them
 
-### 1. Audio — biggest win for the effort
-
-Nothing plays. The assets have been sitting in `public/sounds/*.ogg` and
-`public/music/chiptune.xm` since before the rebuild, and `mission.music` is
-plumbed all the way from the CLI flag (`--no-music`) into `Mission` — and then
-consumed by nobody. The game is notably lifeless without it.
-
-Wanted:
-- A small `src/systems/audio.ts` bus: SFX pool + music, respecting `mission.music`.
-- Positional where it matters (gunfire, bomb detonation, stampede rumble).
-- Hooks already exist as events: `onPickup`/`onDrop`/`onDecayed`/`onStash` in
-  `CarrySystem`, `onEnemyKilled`/`onPlayerHit` in `CombatSystem`, `onEvent` in
-  `Director`, `onDetonate` in `BombSystem`.
-- Browsers block audio until a gesture — the briefing's Deploy button is the
-  natural unlock point.
-
-### 2. README
+### 1. README
 
 Still describes the 2D game: "chaotic 2D action-game", Z to shoot, a git-revert
 key, a pickups table that no longer exists. It is the first thing anyone reads
@@ -66,14 +50,14 @@ and all of it is wrong. Controls are now WASD / mouse aim / LMB fire / Space
 dodge / Q drop / E stash / Esc pause, and the CLI has `--death=` and `--stash=`
 flags that are undocumented outside `gcmds --help`.
 
-### 3. M6 art pass
+### 2. M6 art pass
 
 Everything on screen is procedural geometry. REBUILD.md §5 has the plan and
 ASSETS.md has the licence rules (**CC0 only** — this publishes to npm). The
 three hero meshes named there are the player, the file crate and the beacon.
 Bloom would flatter the existing emissive palette a lot.
 
-### 4. M5 finish — chunk-authored rooms
+### 3. M5 finish — chunk-authored rooms
 
 `buildRoute` carves a good route procedurally, but REBUILD.md's design was
 hand-authored room chunks assembled along it. Current maps are structurally
@@ -97,6 +81,13 @@ sound but samey. `src/world/rooms/*.json` was the intended home.
 - **No pause during the invite modal** is intentional (the joke is that the
   game does not stop for your calendar), but it has not been playtested for
   fairness during a boss fight.
+- **The music track's licence is unverified** and it now actually plays. The
+  current pick is keygen music off KeygenJukebox; the chiptune it replaced is
+  modarchive with no stated licence. See ASSETS.md — this is a publish
+  blocker, and swapping the track is one line in the manifest.
+- **The mix has been measured, not listened to on other hardware.** Levels were
+  set against one pair of speakers; the stampede rumble in particular lives
+  low enough that small laptop speakers may not reproduce much of it.
 - **Meetings can spawn overlapping walls.** Containment maths is correct; it
   just looks odd.
 

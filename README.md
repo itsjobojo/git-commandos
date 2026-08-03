@@ -1,6 +1,6 @@
 <center>
 
-  <img src="public/images/logo.png" alt="Git Commandos" width="480" />
+  <img src="docs/logo.png" alt="Git Commandos" width="480" />
 
   <p>
     <strong>Every commit is an extraction mission.</strong>

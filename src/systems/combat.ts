@@ -4,10 +4,14 @@ import { Enemy, type EnemyContext } from '../entities/enemies/enemy';
 import { AiBro } from '../entities/enemies/ai-bro';
 import type { Player } from '../entities/player';
 import type { Grid } from '../world/grid';
-import type { Loadout } from './weapons';
+import type { Loadout, WeaponId } from './weapons';
 
 export interface CombatEvents {
   onEnemyKilled?: (enemy: Enemy) => void;
+  /** A round left the player's muzzle. @param x/z where the muzzle was. */
+  onPlayerShot?: (weapon: WeaponId, x: number, z: number) => void;
+  /** A player round connected without killing. @param x/z the point of impact. */
+  onEnemyHit?: (x: number, z: number) => void;
   /** @param sourceX/sourceZ where the hit came from, for directional feedback. */
   onPlayerHit?: (sourceX: number, sourceZ: number) => boolean;
   shake?: (amount: number) => void;
@@ -146,6 +150,9 @@ export class CombatSystem {
 
     player.vx -= Math.cos(player.yaw) * weapon.recoil;
     player.vz -= Math.sin(player.yaw) * weapon.recoil;
+    // One report per trigger pull, not per pellet — seven overlapping copies of
+    // the same sample is a click, not a shotgun.
+    this.events.onPlayerShot?.(weapon.id, muzzleX, muzzleZ);
     if (weapon.recoil > 3) this.events.shake?.(0.14);
     this.fireCooldown = weapon.fireInterval;
 
@@ -181,6 +188,8 @@ export class CombatSystem {
           this.projectiles.kill(i);
           if (enemy.damage(this.projectiles.damageOf(i))) {
             this.events.onEnemyKilled?.(enemy);
+          } else {
+            this.events.onEnemyHit?.(bx, bz);
           }
           break;
         }

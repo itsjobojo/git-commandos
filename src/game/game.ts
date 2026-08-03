@@ -21,6 +21,7 @@ import { Faction } from '../systems/projectiles';
 import { MEETING_SLOW, SHELTER_GRACE, MeetingSystem } from '../systems/meetings';
 import { BLAST_RADIUS, BombSystem } from '../systems/bombs';
 import { PickupSystem, type PickupOffer } from '../systems/pickups';
+import { AudioSystem, eventCue, shotCue } from '../systems/audio';
 import { Loadout, WEAPONS } from '../systems/weapons';
 import { showInvite } from '../ui/invite-modal';
 import { Director } from './director';
@@ -82,6 +83,7 @@ export class Game {
   private readonly pickups: PickupSystem;
   private readonly loadout = new Loadout();
   private readonly director: Director;
+  private readonly audio: AudioSystem;
   /** Dismisses an open invite, if one is up. */
   private closeInvite: (() => void) | null = null;
 
@@ -99,6 +101,9 @@ export class Game {
     private readonly git: GitContext | null,
   ) {
     this.rng = new Rng(mission.seed);
+    // Starts fetching its samples now; the audio graph itself has to wait for
+    // the Deploy gesture, because browsers will not start one without.
+    this.audio = new AudioSystem({ music: mission.music, seed: mission.seed });
 
     this.renderer = createRenderer(canvas);
     this.rig = new CameraRig(window.innerWidth / window.innerHeight);
@@ -153,15 +158,29 @@ export class Game {
       mission.rules.stash,
       mission.rules.stash === 'off' ? null : this.map.stash,
       {
-        onDecayed: (record) => this.hud.flash(`LOST ${basename(record.name)}`, 'bad'),
-        onDrop: (record) => this.hud.flash(`DROPPED ${basename(record.name)}`, 'warn'),
-        onPickup: (record) => this.hud.flash(`SECURED ${basename(record.name)}`, 'good'),
-        onStash: (record) => this.hud.flash(`STASHED ${basename(record.name)}`, 'info'),
+        onDecayed: (record) => {
+          this.hud.flash(`LOST ${basename(record.name)}`, 'bad');
+          this.audio.play('cargo-lost');
+        },
+        onDrop: (record) => {
+          this.hud.flash(`DROPPED ${basename(record.name)}`, 'warn');
+          this.audio.play('cargo-dropped');
+        },
+        onPickup: (record) => {
+          this.hud.flash(`SECURED ${basename(record.name)}`, 'good');
+          this.audio.play('cargo-secured');
+        },
+        onStash: (record) => {
+          this.hud.flash(`STASHED ${basename(record.name)}`, 'info');
+          this.audio.play('cargo-stashed');
+        },
       },
     );
 
     this.combat = new CombatSystem(this.scene, this.map.grid, this.loadout, {
       onEnemyKilled: (enemy) => this.onEnemyKilled(enemy),
+      onPlayerShot: (weapon, x, z) => this.audio.play(shotCue(weapon), x, z),
+      onEnemyHit: (x, z) => this.audio.play('enemy-hit', x, z),
       onPlayerHit: (sourceX, sourceZ) => {
         this.takeHit(sourceX, sourceZ);
         return true;
@@ -170,12 +189,14 @@ export class Game {
       onOutOfAmmo: () => {
         this.player.setWeapon('pistol');
         this.hud.flash('OUT OF AMMO — SIDEARM', 'warn');
+        this.audio.play('out-of-ammo');
       },
     });
     this.pickups = new PickupSystem(this.scene, (offer, first) => this.onPickup(offer, first));
     this.placeWeapons();
     this.meetings = new MeetingSystem(this.scene);
     this.bombs = new BombSystem(this.scene, (x, z) => this.onBombDetonated(x, z));
+    this.extraction.onFirstEntry = () => this.audio.play('extraction-enter');
     this.director = new Director(
       this.scene,
       this.combat,
@@ -185,7 +206,12 @@ export class Game {
       this.map.waypoints,
       // A bigger diff is a busier map, on top of being a longer one.
       Math.min(1, mission.linesAdded / 400),
-      { onEvent: (title, subtitle, kind) => this.hud.announce(title, subtitle, kind) },
+      {
+        onEvent: (title, subtitle, kind) => {
+          this.hud.announce(title, subtitle, kind);
+          this.audio.play(eventCue(kind));
+        },
+      },
     );
 
     this.reticle = createReticle();
@@ -209,11 +235,15 @@ export class Game {
   async run(): Promise<void> {
     this.loop.start();
     await showBriefing(this.uiRoot, this.mission);
+    // Deploy is the gesture the browser wants before it will let us make a
+    // sound, and the only one the game is guaranteed to get.
+    this.audio.unlock();
     this.state = 'playing';
   }
 
   stop(): void {
     this.loop.stop();
+    this.audio.dispose();
     this.input.dispose();
     this.disposeResize();
     this.disposeDebugKeys();
@@ -256,7 +286,11 @@ export class Game {
     this.player.intent = intent;
     this.player.aimX = this.aim.x;
     this.player.aimZ = this.aim.z;
+    const wasRolling = this.player.isRolling;
     this.player.tick(dt);
+    // The dodge is owned by the player, and whether one actually started is
+    // only visible from the outside as this edge — pressing the key isn't it.
+    if (!wasRolling && this.player.isRolling) this.audio.play('dodge');
 
     // You can still work inside a shelter — it's the avoid blob that pins you.
     if (!inAvoid) this.carry.update(dt, this.player, intent);
@@ -276,9 +310,10 @@ export class Game {
       carrying: this.ledger.carriedCount,
     });
 
-    if (this.extraction.update(dt, this.player.x, this.player.z)) {
-      this.finish('win');
-    }
+    const extracted = this.extraction.update(dt, this.player.x, this.player.z);
+    // The pad ticks while you hold it, but not over the top of the win itself.
+    this.audio.setExtraction(this.extraction.inside && !extracted, this.extraction.progress);
+    if (extracted) this.finish('win');
 
     this.input.consumeEdges();
   };
@@ -292,18 +327,25 @@ export class Game {
       rng: this.rng,
       time: Time.real,
       extracting: this.extraction.progress > 0,
-      fire: (opts) => this.combat.projectiles.spawn({ ...opts, faction: Faction.Enemy }),
+      fire: (opts) => {
+        this.combat.projectiles.spawn({ ...opts, faction: Faction.Enemy });
+        this.audio.play('shot-enemy', opts.x, opts.z);
+      },
       hitPlayer: (sourceX, sourceZ) => {
         if (this.player.invulnerable) return false;
         this.takeHit(sourceX, sourceZ);
         return true;
       },
       shake: (amount) => this.rig.addTrauma(amount),
-      throwBomb: (fx, fz, tx, tz) => this.bombs.throwAt(fx, fz, tx, tz),
+      throwBomb: (fx, fz, tx, tz) => {
+        this.bombs.throwAt(fx, fz, tx, tz);
+        this.audio.play('bomb-thrown', fx, fz);
+      },
     };
   }
 
   private onEnemyKilled(enemy: Enemy): void {
+    this.audio.play('enemy-killed', enemy.x, enemy.z);
     this.rollDrop(enemy);
 
     // Killing one bro makes the rest speed up. "He's just early."
@@ -324,6 +366,7 @@ export class Game {
    */
   private onAttendedMeeting(title: string): void {
     this.player.shelterTimer = Math.max(this.player.shelterTimer, SHELTER_GRACE);
+    this.audio.play('meeting-attended');
     if (this.mission.rules.death === 'health' && this.hp < MAX_HP) {
       this.hp += 1;
       this.hud.flash(`ATTENDED ${title} — +1 HP, ${SHELTER_GRACE}s COVER`, 'good');
@@ -370,23 +413,29 @@ export class Game {
       this.player.setWeapon(offer.id);
       const spec = WEAPONS[offer.id];
       this.hud.announce(spec.name.toUpperCase(), `${spec.ammo ?? '∞'} rounds`, 'good');
+      this.audio.play('pickup-weapon');
       return true;
     }
 
     if (this.loadout.id !== offer.id) {
       if (firstTouch) {
         this.hud.flash(`NEED THE ${WEAPONS[offer.id].name.toUpperCase()}`, 'warn');
+        this.audio.play('pickup-refused');
       }
       return false;
     }
     if (this.loadout.ammo !== null && this.loadout.ammo >= (this.loadout.maxAmmo ?? 0)) {
-      if (firstTouch) this.hud.flash('AMMO FULL', 'info');
+      if (firstTouch) {
+        this.hud.flash('AMMO FULL', 'info');
+        this.audio.play('pickup-refused');
+      }
       return false;
     }
 
     this.loadout.addAmmo(offer.id, offer.rounds);
     this.player.setWeapon(offer.id);
     this.hud.flash(`+${offer.rounds} ${WEAPONS[offer.id].name.toUpperCase()}`, 'good');
+    this.audio.play('pickup-ammo');
     return true;
   }
 
@@ -425,6 +474,7 @@ export class Game {
 
   private onBombDetonated(x: number, z: number): void {
     if (this.state !== 'playing') return;
+    this.audio.play('bomb-detonate', x, z);
 
     const distance = Math.hypot(this.player.x - x, this.player.z - z);
     // Felt from further away than it reaches, but only a hit inside the ring.
@@ -436,12 +486,15 @@ export class Game {
     // Only one invite at a time; a stack of modals is a crash, not a joke.
     if (this.closeInvite) return;
 
+    this.audio.play('invite-opened');
     this.closeInvite = showInvite(this.uiRoot, this.rng, (choice) => {
       this.closeInvite = null;
       if (choice === 'decline') {
         this.hud.flash('DECLINED', 'good');
+        this.audio.play('invite-declined');
         return;
       }
+      this.audio.play('invite-accepted');
       const meeting = this.meetings.schedule(this.rng, 'mandatory', x, z);
       this.hud.announce(
         'MEETING ACCEPTED',
@@ -454,6 +507,7 @@ export class Game {
   /** Missing a mandatory meeting costs you a crate. */
   private onMissedMeeting(title: string): void {
     this.hud.flash(`MISSED ${title}`, 'bad');
+    this.audio.play('meeting-missed');
     const dropped = this.carry.knockLoose(this.player);
     if (!dropped) this.rig.addTrauma(0.2);
   }
@@ -474,6 +528,7 @@ export class Game {
       sourceZ === undefined ? 0 : sourceZ - this.player.z,
     );
 
+    this.audio.play('player-hit');
     const dropped = this.carry.knockLoose(this.player);
     this.player.invulnTimer = HIT_INVULN;
     this.rig.addTrauma(dropped ? 0.55 : 0.3);
@@ -506,7 +561,9 @@ export class Game {
   private async pause(): Promise<void> {
     if (this.state !== 'playing') return;
     this.state = 'paused';
+    this.audio.setPaused(true);
     const choice = await showPause(this.uiRoot, this.mission);
+    this.audio.setPaused(false);
     if (choice === 'resume') {
       // The very keypress that dismissed the menu also latched a fresh pause
       // edge on the input. Without clearing it, the next step re-pauses and
@@ -516,6 +573,7 @@ export class Game {
       return;
     }
     this.state = 'debrief';
+    this.audio.fadeMusicOut(0.8);
     this.git?.abort();
     showAborted(this.uiRoot, this.mission);
   }
@@ -535,6 +593,9 @@ export class Game {
     const empty = outcome === 'win' && this.ledger.result(outcome).surviving.length === 0;
     const finalOutcome: Outcome = empty ? 'loss' : outcome;
     const reason: DebriefReason = empty ? 'empty-handed' : outcome === 'win' ? 'extracted' : 'down';
+
+    this.audio.play(finalOutcome === 'win' ? 'extracted' : 'failed');
+    this.audio.fadeMusicOut();
 
     const result = this.ledger.result(finalOutcome);
     this.git?.sendResult(finalOutcome, result);
@@ -561,7 +622,11 @@ export class Game {
     // frame behind the thing it is supposed to be revealing.
     this.map.setFocus(this.renderPos.x, 0.9, this.renderPos.z);
 
-    this.rig.setRumble(this.stampedeRumble());
+    // What you feel and what you hear are the same herd, off the same number.
+    const rumble = this.stampedeRumble();
+    this.rig.setRumble(rumble);
+    this.audio.setRumble(rumble);
+    this.audio.setListener(this.player.x, this.player.z);
     // The camera runs on real time, not simulation time — it must keep moving
     // smoothly through hitstop.
     this.rig.update(realDt, this.renderPos.x, this.renderPos.z, this.aim.x, this.aim.z);

@@ -8,16 +8,38 @@ commercial redistribution. Anything else does not go in.
 
 Nothing from the pre-rebuild sprite packs (`kenney_desert-shooter-pack_1.0`,
 `kenney_tiny-dungeon`, `kenney_top-down-shooter`) or `src/art/sprites.ts`
-carries over — all of it was removed in the 3D rebuild (M0).
+carries over — all of it was removed in the 3D rebuild (M0), and the 537
+leftover PNGs under `public/sprites/` went with the audio pass.
+
+**Everything in `public/` is shipped**, because Vite copies it into `dist/` and
+`dist/` is what npm publishes. Nothing belongs there unless the running game
+fetches it.
 
 ## Current
 
 | Asset | Path | Source | Licence | Added |
 |---|---|---|---|---|
-| SFX (coin, hurt, explosion, jump, fall, error) | `public/sounds/*.ogg` | Kenney — Digital Audio / Impact Sounds | CC0 | pre-rebuild |
-| Chiptune track | `public/music/chiptune.xm`, `.ogg` | modarchive.org | see track metadata | pre-rebuild |
+| SFX — 40 files (coin, hurt, explosion, jump, fall, error, move, select, shoot) | `public/sounds/*.ogg` | Kenney — Digital Audio / Impact Sounds | CC0 | pre-rebuild |
+| Music — the track that plays | `public/music/SnD_-_Apollo_products_kgs.mp3` | ID3: *"SnD - Apollo products kgs"*, comment `KeygenJukebox.com` | **unverified — see below** | 2026-08-03 |
 | chiptune3 worklets | `public/audio/*.worklet.js` | [chiptune3](https://www.npmjs.com/package/chiptune3) npm package (copied by `postinstall`) | MIT | pre-rebuild |
-| Logo | `public/images/logo.png` | Original | project-owned | pre-rebuild |
+
+Not shipped, and deliberately outside `public/`:
+
+| Asset | Path | Source | Licence |
+|---|---|---|---|
+| Logo | `docs/logo.png` | Original | project-owned |
+
+All shipped assets are referenced from `src/assets/manifest.ts` and nowhere
+else, and `src/assets/manifest.test.ts` fails if a path in it stops resolving.
+Every sound is in use as of the audio pass (2026-08-03); nothing in
+`public/sounds/` is dead weight.
+
+The libopenmpt worklets (1.5MB) are the exception: they are regenerated on
+every install by the `postinstall` step and are only needed when `MUSIC_TRACK`
+is a tracker module, which it currently is not. They are kept because the
+engine is one line away from being used again. To shed them, drop the
+`postinstall` script and the `chiptune3` dependency — `systems/music.ts` only
+imports it dynamically, so nothing else breaks.
 
 Everything currently rendered in-game — floor, walls, cover, the player
 placeholder, the reticle — is **procedural geometry generated in code**. There
@@ -40,6 +62,30 @@ not after.
 Three "hero" meshes — the file crate, the extraction beacon, and the player —
 are authored specifically for this game rather than pulled from a pack, so the
 game has an identity of its own. See REBUILD.md §5.
+
+## Open question: the music track's licence
+
+`SnD_-_Apollo_products_kgs.mp3` plays on every run unless `--no-music` is
+passed, and its licence is unverified. **It falls short of the rule at the top
+of this file** and needs resolving before publishing.
+
+Its ID3 tags give the title *"SnD - Apollo products kgs"* and the comment
+`KeygenJukebox.com`. That is keygen music: a scene track ripped out of a crack
+tool and rehosted. No licence travels with it, the original artist is not
+reliably identified by the filename, and the site it came from is an archive
+rather than a rights holder.
+
+The track it replaced was no better — *"those were the days"* by **Viraxor**
+(Dec 2021) from modarchive.org, which licenses per-track and stated no licence
+in the module metadata. It was deleted in the audio pass; `git show
+HEAD~1:public/music/chiptune.xm` still has it if it is ever wanted back.
+
+- The fix: confirm the licence with the rights holder, or drop in a CC0 track.
+  `MUSIC_TRACK` in `src/assets/manifest.ts` is one line, and `systems/music.ts`
+  picks its engine off the file extension, so a tracker module and an mp3 are
+  equally easy to swap in.
+- Nothing else depends on it. `--no-music` is a tested path and the game is
+  fully playable without any track at all.
 
 ## Exception: the Outlook mark — NOT CC0
 
