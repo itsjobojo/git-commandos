@@ -11,6 +11,14 @@ import { PALETTE } from '../render/palette';
 
 const FUSE_SECONDS = 2.2;
 const ARC_HEIGHT = 7;
+/**
+ * Blast radius — and exactly what the ground marker draws.
+ *
+ * The ring has to be the truth about who gets hit. It previously showed one
+ * size while detonation ignored distance entirely and opened an invite
+ * wherever you were standing, which made the telegraph a lie.
+ */
+export const BLAST_RADIUS = 4.2;
 
 interface Bomb {
   fromX: number;
@@ -29,7 +37,7 @@ interface Bomb {
 /**
  * Invite bombs.
  *
- * The Outlook boss lobs these at your feet. They arc, land, and telegraph on a
+ * The invite swarm lobs these at your feet. They arc, land, and telegraph on a
  * fuse with a ground marker, and when one goes off it opens a meeting invite
  * over the whole screen. The arc and the fuse exist so it's dodgeable in
  * principle and always your fault in practice.
@@ -63,7 +71,7 @@ export class BombSystem {
 
     // Ground marker so the landing spot is readable before it gets there.
     const marker = new Mesh(
-      new RingGeometry(1.5, 1.9, 28),
+      new RingGeometry(BLAST_RADIUS - 0.35, BLAST_RADIUS, 40),
       new MeshBasicMaterial({ color: PALETTE.invite, transparent: true, opacity: 0.6 }),
     );
     marker.rotation.x = -Math.PI / 2;
@@ -113,7 +121,8 @@ export class BombSystem {
       bomb.group.position.set(bomb.toX, 0.6 + pulse * 0.12, bomb.toZ);
       bomb.shell.scale.setScalar(1 + urgency * 0.5 + pulse * 0.18);
       (bomb.marker.material as MeshBasicMaterial).opacity = 0.35 + pulse * 0.5;
-      bomb.marker.scale.setScalar(1 - urgency * 0.45);
+      // Shrinks toward the true blast edge rather than past it.
+      bomb.marker.scale.setScalar(1 - urgency * 0.12);
 
       if (bomb.fuse <= 0) {
         this.onDetonate(bomb.toX, bomb.toZ);

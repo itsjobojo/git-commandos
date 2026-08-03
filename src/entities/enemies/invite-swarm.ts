@@ -19,17 +19,20 @@ const INVITE_LIFE = 2.6;
 const BOMB_INTERVAL: [number, number] = [6.5, 9.5];
 
 /**
- * The Outlook Invite Swarm — mid-game mini-boss.
+ * The Invite Swarm — mid-game mini-boss.
  *
- * A bloated calendar icon that hovers over the arena and carpet-bombs you with
+ * A bloated calendar that hovers over the arena and carpet-bombs you with
  * meeting invites. Individually each one looks harmless; collectively it's a
  * bullet hell. Invites can be *declined* by shooting them, and rolling through
  * a fan declines everything it touches — that's the skill expression.
  *
  * At half health it stops sending individual invites and starts one recurring
  * series: a spiral that doesn't stop until the boss is dead.
+ *
+ * Deliberately unbranded: no real product name or logo appears anywhere. The
+ * joke is the behaviour, not the trademark, and this ships as an npm package.
  */
-export class OutlookSwarm extends Enemy {
+export class InviteSwarm extends Enemy {
   readonly group = new Group();
   hp = 26;
   maxHp = 26;
@@ -152,7 +155,7 @@ export class OutlookSwarm extends Enemy {
     }
   }
 
-  syncOutlook(alpha: number): void {
+  syncSwarm(alpha: number): void {
     super.syncObject(alpha, 0);
     this.group.rotation.y = -this.yaw;
     const hover = Math.sin(this.bob * 1.4) * 0.28;

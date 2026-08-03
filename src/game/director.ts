@@ -1,7 +1,7 @@
 import type { Scene } from 'three';
 import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
-import { OutlookSwarm } from '../entities/enemies/outlook';
+import { InviteSwarm } from '../entities/enemies/invite-swarm';
 import { Recruiter } from '../entities/enemies/recruiter';
 import { Intern } from '../entities/enemies/intern';
 import type { CombatSystem } from '../systems/combat';
@@ -56,7 +56,7 @@ export class Director {
   private recruiterTimer = 6;
   private internTimer = 16;
   private organizerSpawned = false;
-  private outlookSpawned = false;
+  private swarmSpawned = false;
   private stampedesReleased = 0;
   private midRunStampedeDone = false;
   private extractionStampedeDone = false;
@@ -89,7 +89,7 @@ export class Director {
     this.updateRecruiters(dt, ctx);
     if (SPAWN_INTERNS) this.updateInterns(dt, ctx);
     this.updateOrganizer(ctx);
-    this.updateOutlook(ctx);
+    this.updateInviteSwarm(ctx);
     this.updateStampede(dt, ctx);
     this.updateScheduledMeetings(ctx);
   }
@@ -141,15 +141,15 @@ export class Director {
   }
 
   /** Mid-game: once you're actually committed to the haul. */
-  private updateOutlook(ctx: DirectorContext): void {
-    if (this.outlookSpawned) return;
+  private updateInviteSwarm(ctx: DirectorContext): void {
+    if (this.swarmSpawned) return;
     if (this.elapsed < 65) return;
-    this.outlookSpawned = true;
-    const boss = new OutlookSwarm();
+    this.swarmSpawned = true;
+    const boss = new InviteSwarm();
     const spot = this.spawnPoint(ctx);
     boss.setPosition(spot.x, spot.z);
     this.combat.add(boss, this.scene);
-    this.events.onEvent?.('OUTLOOK INVITE SWARM', 'decline everything', 'bad');
+    this.events.onEvent?.('THE INVITE SWARM', 'decline everything', 'bad');
     this.quietUntil = this.elapsed + LULL_SECONDS;
   }
 

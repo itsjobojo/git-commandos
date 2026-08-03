@@ -4,7 +4,12 @@ import { SpeechBubble } from '../../render/bubble';
 import { AI_BRO_LINES } from './ai-bro-lines';
 import { PALETTE } from '../../render/palette';
 
-const SPEED = 8.6;
+/**
+ * Slower than the player's base 8.2, so a stampede is something you can read
+ * and step out of rather than something that simply catches you. It should
+ * feel like weight arriving, not a chase.
+ */
+const SPEED = 6.6;
 /** Knockback applied on contact, in units per second. */
 const SHOVE = 13;
 const TALK_INTERVAL: [number, number] = [2.2, 5.5];
@@ -91,7 +96,8 @@ export class AiBro extends Enemy {
     const legs = new Mesh(new BoxGeometry(0.4, 0.5, 0.5), trousers);
     legs.position.y = 0.26;
 
-    this.bubble.sprite.position.set(0, 1.75, 0);
+    // Clear of the body, so a bigger bubble doesn't sit on top of the bro.
+    this.bubble.sprite.position.set(0, 2.05, 0);
 
     this.group.add(this.body, laptop, legs, this.bubble.sprite);
     this.object = this.group;

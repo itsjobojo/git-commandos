@@ -1,5 +1,4 @@
 import { el } from './overlay';
-import { outlookIconDataUrl } from './outlook-icon';
 import type { Rng } from '../core/rng';
 
 export type InviteChoice = 'accept' | 'decline';
@@ -14,7 +13,11 @@ const SUBJECTS = [
   'Post-mortem pre-brief',
   'Weekly cadence alignment',
   'Kickoff for the kickoff',
-  'Culture Committee: Volunteers Needed',
+  'Culture Committee: volunteers needed',
+  'Alignment on the alignment doc',
+  'Brief chat about your commits',
+  'Retro on the retro format',
+  'Optional (not optional)',
 ];
 
 const ORGANIZERS = [
@@ -24,26 +27,33 @@ const ORGANIZERS = [
   'Dave (Strategy)',
   'People Operations',
   'AI Center of Excellence',
+  'Someone you have never met',
 ];
 
 const LOCATIONS = [
-  'Microsoft Teams Meeting',
+  'Video call — link in the body',
   'Conf Rm — Synergy (4th floor)',
   'Zoom (link to follow)',
   'Wherever you are, honestly',
+  'No location set',
 ];
 
 /** Seconds before an ignored invite accepts itself. */
 export const INVITE_TIMEOUT = 9;
 
 /**
- * An Outlook meeting invite, in your face, mid-firefight.
+ * A meeting invite, in your face, mid-firefight.
  *
- * The joke only works if it's genuinely obstructive: it sits on top of
- * everything, the game keeps running underneath, and ignoring it does not make
- * it go away — it accepts itself, which is exactly what happens in real life.
- * Declining is free but costs you the seconds it takes to find the button
- * while something is shooting at you.
+ * Styled as part of the game rather than as a replica of any real mail client
+ * — a photoreal window pasted over a stylised 3D scene reads as a broken game,
+ * not a joke, and no real product name or logo appears anywhere. Same palette
+ * and typeface as everything else, and it stays compact and undimmed so you
+ * can see the fight continuing underneath.
+ *
+ * The joke is that it's obstructive: the game does not pause, and ignoring it
+ * does not make it go away — it accepts itself, which is exactly what happens
+ * in real life. Declining is free but costs you the seconds it takes to find
+ * the button while something is shooting at you.
  */
 export function showInvite(
   root: HTMLElement,
@@ -57,58 +67,62 @@ export function showInvite(
 
   const shell = el(
     'div',
-    `position:absolute; left:50%; top:44%; transform:translate(-50%,-50%) scale(.86);
-     width:min(560px, 92vw); opacity:0;
+    `position:absolute; left:50%; top:34%; transform:translate(-50%,-50%) scale(.9);
+     width:min(460px, 88vw); opacity:0;
      transition:opacity .16s ease, transform .16s cubic-bezier(.2,1.2,.4,1);
-     background:#faf9f8; color:#201f1e; border-radius:8px;
-     box-shadow:0 28px 90px rgba(0,0,0,.75), 0 0 0 1px rgba(0,0,0,.25);
-     font-family:'Segoe UI', system-ui, -apple-system, sans-serif; overflow:hidden;`,
+     background:rgba(8,12,17,.94); border:1px solid #2b4a6b; border-radius:3px;
+     box-shadow:0 24px 70px rgba(0,0,0,.7), 0 0 0 1px rgba(96,165,250,.12),
+                inset 0 1px 0 rgba(255,255,255,.04);
+     font-family:var(--font-mono); color:var(--ink); overflow:hidden;`,
   );
 
-  // Title bar.
+  // Header. The mark is a generic envelope drawn in CSS, not anyone's logo.
   const bar = el(
     'div',
-    `display:flex; align-items:center; gap:10px; padding:10px 12px;
-     background:#0f6cbd; color:#fff; font-size:13px;`,
+    `display:flex; align-items:center; gap:9px; padding:9px 12px;
+     background:rgba(96,165,250,.1); border-bottom:1px solid #2b4a6b;`,
   );
-  const icon = el('img', 'width:22px; height:22px; display:block; border-radius:4px;') as HTMLImageElement;
-  icon.src = outlookIconDataUrl(64);
-  icon.alt = 'Outlook';
-  const barTitle = el('div', 'flex:1; font-weight:600;', 'Meeting invitation');
+  const mark = el(
+    'div',
+    `width:14px; height:12px; flex:none; border:1.5px solid #60a5fa; border-radius:1px;
+     border-top-width:4px;`,
+  );
+  const barTitle = el(
+    'div',
+    `flex:1; font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:#60a5fa;`,
+    'Meeting invitation',
+  );
   const close = el(
     'button',
-    `width:30px; height:24px; border:0; background:transparent; color:#fff; cursor:pointer;
-     font-size:15px; line-height:1; border-radius:3px;`,
+    `width:22px; height:20px; border:0; background:transparent; color:#6b7d79; cursor:pointer;
+     font-size:13px; line-height:1; font-family:inherit;`,
     '✕',
   );
   close.title = 'Decline';
   close.addEventListener('mouseenter', () => {
-    close.style.background = '#c42b1c';
+    close.style.color = '#f87171';
   });
   close.addEventListener('mouseleave', () => {
-    close.style.background = 'transparent';
+    close.style.color = '#6b7d79';
   });
-  bar.append(icon, barTitle, close);
+  bar.append(mark, barTitle, close);
 
-  // Body.
-  const body = el('div', 'padding:18px 20px 6px;');
+  const body = el('div', 'padding:16px 18px 4px;');
   body.appendChild(
-    el('div', 'font-size:19px; font-weight:600; line-height:1.3; margin-bottom:4px;', subject),
+    el('div', 'font-size:17px; line-height:1.35; color:#e6f1ee; margin-bottom:3px;', subject),
   );
-  body.appendChild(
-    el('div', 'font-size:13px; color:#605e5c; margin-bottom:14px;', `${organizer} is inviting you`),
-  );
+  body.appendChild(el('div', 'font-size:12px; color:#5c7180; margin-bottom:13px;', organizer));
 
-  const rows = el('div', 'font-size:13px; line-height:1.9; color:#323130;');
+  const rows = el('div', 'font-size:12px; line-height:1.85;');
   for (const [label, value] of [
-    ['When', 'Now — 30 minutes'],
-    ['Where', location],
-    ['Required', `You and ${attendees} others`],
+    ['when', 'now — 30 minutes'],
+    ['where', location],
+    ['required', `you and ${attendees} others`],
   ]) {
-    const row = el('div', 'display:flex; gap:12px;');
+    const row = el('div', 'display:flex; gap:10px;');
     row.append(
-      el('span', 'width:70px; color:#605e5c; flex:none;', label),
-      el('span', 'flex:1;', value),
+      el('span', 'width:62px; color:#4b5c66; flex:none;', label),
+      el('span', 'flex:1; color:#c3d3d0;', value),
     );
     rows.appendChild(row);
   }
@@ -116,34 +130,20 @@ export function showInvite(
 
   const note = el(
     'div',
-    `margin:14px 0 0; padding:10px 12px; background:#fff4ce; border-left:3px solid #f2c811;
-     font-size:12px; color:#3b3a39;`,
+    `margin-top:13px; padding:8px 10px; background:rgba(251,191,36,.09);
+     border-left:2px solid #fbbf24; font-size:11px; color:#c9a44b;`,
   );
-  const countdown = el('span', 'font-weight:600;', `${INVITE_TIMEOUT}`);
+  const countdown = el('span', 'color:#fbbf24;', `${INVITE_TIMEOUT}s`);
   note.append(
     document.createTextNode('No response required. Accepting automatically in '),
     countdown,
-    document.createTextNode('s.'),
+    document.createTextNode('.'),
   );
   body.appendChild(note);
 
-  // Buttons.
-  const actions = el(
-    'div',
-    'display:flex; gap:8px; padding:16px 20px 18px; justify-content:flex-end;',
-  );
-  const accept = el(
-    'button',
-    `padding:8px 20px; border:0; border-radius:4px; background:#0f6cbd; color:#fff;
-     font-size:13px; font-weight:600; cursor:pointer; font-family:inherit;`,
-    'Accept',
-  );
-  const decline = el(
-    'button',
-    `padding:8px 20px; border:1px solid #8a8886; border-radius:4px; background:#fff;
-     color:#201f1e; font-size:13px; cursor:pointer; font-family:inherit;`,
-    'Decline',
-  );
+  const actions = el('div', 'display:flex; gap:8px; padding:14px 18px 16px; justify-content:flex-end;');
+  const decline = gameButton('Decline', '#4ade80');
+  const accept = gameButton('Accept', '#f87171');
   actions.append(decline, accept);
 
   shell.append(bar, body, actions);
@@ -157,7 +157,7 @@ export function showInvite(
   let remaining = INVITE_TIMEOUT;
   const tick = setInterval(() => {
     remaining -= 1;
-    countdown.textContent = `${Math.max(0, remaining)}`;
+    countdown.textContent = `${Math.max(0, remaining)}s`;
     if (remaining <= 0) finish('accept');
   }, 1000);
 
@@ -166,7 +166,7 @@ export function showInvite(
     settled = true;
     clearInterval(tick);
     shell.style.opacity = '0';
-    shell.style.transform = 'translate(-50%,-50%) scale(.9)';
+    shell.style.transform = 'translate(-50%,-50%) scale(.94)';
     setTimeout(() => shell.remove(), 180);
     onChoice(choice);
   }
@@ -177,4 +177,25 @@ export function showInvite(
 
   // Caller's escape hatch, for teardown mid-run.
   return () => finish('decline');
+}
+
+/**
+ * Declining is the good outcome, so it wears the good colour. Accepting drops
+ * a mandatory meeting on your head — the button should look like a mistake.
+ */
+function gameButton(text: string, colour: string): HTMLButtonElement {
+  const node = el(
+    'button',
+    `padding:7px 18px; border:1px solid ${colour}; border-radius:2px; cursor:pointer;
+     background:transparent; color:${colour}; font:12px/1 var(--font-mono);
+     letter-spacing:.12em; text-transform:uppercase;`,
+    text,
+  );
+  node.addEventListener('mouseenter', () => {
+    node.style.background = 'rgba(255,255,255,.07)';
+  });
+  node.addEventListener('mouseleave', () => {
+    node.style.background = 'transparent';
+  });
+  return node;
 }

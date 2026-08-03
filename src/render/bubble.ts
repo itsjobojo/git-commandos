@@ -26,14 +26,15 @@ export class SpeechBubble {
   }
 
   say(text: string, seconds = 3.4): void {
-    const texture = renderBubble(text);
-    this.material.map?.dispose();
+    const texture = bubbleTexture(text);
     this.material.map = texture;
     this.material.needsUpdate = true;
 
-    const aspect = texture.image.width / texture.image.height;
-    const height = 1.15;
-    this.sprite.scale.set(height * aspect, height, 1);
+    // Sized to be legible from the top-down camera during a stampede, where
+    // these compete with two dozen bodies for attention.
+    const image = texture.image as HTMLCanvasElement;
+    const height = 1.9;
+    this.sprite.scale.set(height * (image.width / image.height), height, 1);
     this.sprite.visible = true;
     this.duration = seconds;
     this.life = seconds;
@@ -57,21 +58,43 @@ export class SpeechBubble {
   }
 
   dispose(): void {
-    this.material.map?.dispose();
+    // The texture is shared from the cache — disposing it here would pull it
+    // out from under every other bro saying the same line.
     this.material.dispose();
   }
 }
 
-const MAX_WIDTH = 460;
-const FONT = '22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-const PADDING = 16;
-const LINE_HEIGHT = 28;
+const MAX_WIDTH = 430;
+const FONT = '600 26px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const PADDING = 18;
+const LINE_HEIGHT = 33;
+
+/**
+ * One texture per distinct line, forever.
+ *
+ * There are only a few dozen lines in the game but a herd says them constantly,
+ * and building a canvas plus uploading a GPU texture on every single utterance
+ * was the single biggest frame-time cost during a stampede. Cached, a line
+ * costs nothing after the first time anyone says it.
+ */
+const textureCache = new Map<string, CanvasTexture>();
+let measureCtx: CanvasRenderingContext2D | null = null;
+
+function bubbleTexture(text: string): CanvasTexture {
+  const cached = textureCache.get(text);
+  if (cached) return cached;
+  const texture = renderBubble(text);
+  textureCache.set(text, texture);
+  return texture;
+}
 
 function renderBubble(text: string): CanvasTexture {
-  const measure = document.createElement('canvas').getContext('2d')!;
-  measure.font = FONT;
-  const lines = wrap(measure, text, MAX_WIDTH - PADDING * 2);
-  const width = Math.max(...lines.map((l) => measure.measureText(l).width)) + PADDING * 2;
+  if (!measureCtx) {
+    measureCtx = document.createElement('canvas').getContext('2d')!;
+    measureCtx.font = FONT;
+  }
+  const lines = wrap(measureCtx, text, MAX_WIDTH - PADDING * 2);
+  const width = Math.max(...lines.map((l) => measureCtx!.measureText(l).width)) + PADDING * 2;
   const height = lines.length * LINE_HEIGHT + PADDING * 2 + 12;
 
   const canvas = document.createElement('canvas');

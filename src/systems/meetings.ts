@@ -155,7 +155,13 @@ export class Meeting {
   private readonly fill: Mesh;
   private readonly outline: Mesh;
   private readonly countdown: Sprite;
-  private countdownTexture: CanvasTexture | null = null;
+  /**
+   * One canvas and one texture for the life of the meeting, redrawn in place.
+   * Allocating a fresh CanvasTexture every time the bar moved meant a GPU
+   * upload several times a second per live meeting.
+   */
+  private readonly countdownCanvas: HTMLCanvasElement;
+  private readonly countdownTexture: CanvasTexture;
   private lastShownSecond = -1;
   private lastShownBar = -1;
   private splat = 0;
@@ -194,7 +200,13 @@ export class Meeting {
 
     // Both kinds get a clock. Knowing an avoid blob clears in 4s turns it from
     // a wall into a decision: wait it out, or spend the time going around.
-    this.countdown = new Sprite(new SpriteMaterial({ transparent: true, depthTest: false }));
+    this.countdownCanvas = document.createElement('canvas');
+    this.countdownCanvas.width = 256;
+    this.countdownCanvas.height = 100;
+    this.countdownTexture = toTexture(this.countdownCanvas);
+    this.countdown = new Sprite(
+      new SpriteMaterial({ map: this.countdownTexture, transparent: true, depthTest: false }),
+    );
     this.countdown.scale.set(2.6, 1.0, 1);
     this.countdown.position.y = 2.7 + radius * 0.28;
     this.countdown.center.set(0.5, 0);
@@ -271,15 +283,12 @@ export class Meeting {
 
     this.lastShownSecond = seconds;
     this.lastShownBar = barStep;
-    this.countdownTexture?.dispose();
-    this.countdownTexture = countdownTexture(seconds, remaining, this.state.kind);
-    const material = this.countdown.material as SpriteMaterial;
-    material.map = this.countdownTexture;
-    material.needsUpdate = true;
+    drawCountdown(this.countdownCanvas, seconds, remaining, this.state.kind);
+    this.countdownTexture.needsUpdate = true;
   }
 
   dispose(): void {
-    this.countdownTexture?.dispose();
+    this.countdownTexture.dispose();
   }
 }
 
@@ -383,11 +392,14 @@ function titleTexture(title: string, kind: MeetingKind): CanvasTexture {
 }
 
 /** Seconds remaining, over a bar that drains left to right as it runs out. */
-function countdownTexture(seconds: number, remaining: number, kind: MeetingKind): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 100;
+function drawCountdown(
+  canvas: HTMLCanvasElement,
+  seconds: number,
+  remaining: number,
+  kind: MeetingKind,
+): void {
   const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const urgent = remaining < 0.25;
   const colour = kind === 'mandatory' ? (urgent ? '#f87171' : '#fbbf24') : '#ef4444';
@@ -416,8 +428,6 @@ function countdownTexture(seconds: number, remaining: number, kind: MeetingKind)
   ctx.strokeStyle = 'rgba(255,255,255,.28)';
   ctx.lineWidth = 2;
   ctx.strokeRect(barX, barY, barW, barH);
-
-  return toTexture(canvas);
 }
 
 function toTexture(canvas: HTMLCanvasElement): CanvasTexture {

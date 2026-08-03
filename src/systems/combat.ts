@@ -181,7 +181,7 @@ export class CombatSystem {
       }
 
       // Enemy fire. Shooting an incoming invite declines it, which is the
-      // Outlook boss's whole counterplay.
+      // invite swarm's whole counterplay.
       const r = br + player.radius;
       const dx = player.x - bx;
       const dz = player.z - bz;

@@ -18,12 +18,12 @@ import { CarrySystem } from '../systems/carry';
 import { CombatSystem } from '../systems/combat';
 import { Faction } from '../systems/projectiles';
 import { MEETING_SLOW, SHELTER_GRACE, MeetingSystem } from '../systems/meetings';
-import { BombSystem } from '../systems/bombs';
+import { BLAST_RADIUS, BombSystem } from '../systems/bombs';
 import { showInvite } from '../ui/invite-modal';
 import { Director } from './director';
 import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
-import { OutlookSwarm } from '../entities/enemies/outlook';
+import { InviteSwarm } from '../entities/enemies/invite-swarm';
 import { Recruiter } from '../entities/enemies/recruiter';
 import { Intern } from '../entities/enemies/intern';
 import type { Enemy, EnemyContext } from '../entities/enemies/enemy';
@@ -276,7 +276,7 @@ export class Game {
       }
       return;
     }
-    if (enemy instanceof OutlookSwarm) this.hud.flash('INVITE SERIES CANCELLED', 'good');
+    if (enemy instanceof InviteSwarm) this.hud.flash('INVITE SERIES CANCELLED', 'good');
     if (enemy instanceof MeetingOrganizer) this.hud.flash('NO FURTHER MEETINGS SCHEDULED', 'good');
   }
 
@@ -306,7 +306,12 @@ export class Game {
    */
   private onBombDetonated(x: number, z: number): void {
     if (this.state !== 'playing') return;
-    this.rig.addTrauma(0.5);
+
+    const distance = Math.hypot(this.player.x - x, this.player.z - z);
+    // Felt from further away than it reaches, but only a hit inside the ring.
+    this.rig.addTrauma(Math.max(0, 0.55 * (1 - distance / (BLAST_RADIUS * 3))));
+
+    if (distance > BLAST_RADIUS) return;
     hitstop(0.06);
 
     // Only one invite at a time; a stack of modals is a crash, not a joke.
@@ -480,7 +485,7 @@ export class Game {
   private syncEnemies(alpha: number): void {
     for (const enemy of this.combat.enemies) {
       if (enemy instanceof AiBro) enemy.syncBro(alpha);
-      else if (enemy instanceof OutlookSwarm) enemy.syncOutlook(alpha);
+      else if (enemy instanceof InviteSwarm) enemy.syncSwarm(alpha);
       else if (enemy instanceof MeetingOrganizer) enemy.syncOrganizer(alpha);
       else if (enemy instanceof Recruiter) enemy.syncRecruiter(alpha);
       else if (enemy instanceof Intern) enemy.syncIntern(alpha);

@@ -22,7 +22,7 @@ const MAX_STEP_DISTANCE = 0.5;
 /**
  * Every projectile in the game, in flat arrays behind one InstancedMesh.
  *
- * A bullet hell needs hundreds of these alive at once — the Outlook boss alone
+ * A bullet hell needs hundreds of these alive at once — the invite swarm alone
  * fires dense fans — so they are pooled rather than allocated, and drawn in a
  * single call rather than one per bullet.
  */
@@ -38,7 +38,7 @@ export class ProjectilePool {
   private readonly spin = new Float32Array(CAPACITY);
   private readonly alive = new Uint8Array(CAPACITY);
 
-  /** Homing: 0 = straight. Used by Outlook invites. */
+  /** Homing: 0 = straight. Used by swarm invites. */
   private readonly homing = new Float32Array(CAPACITY);
 
   private readonly mesh: InstancedMesh;

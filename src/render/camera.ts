@@ -88,7 +88,7 @@ export class CameraRig {
     // whole world vibrating and is genuinely nauseating. Low and slow: you
     // should notice the ground moving, not fight the camera to aim.
     const now = performance.now() * 0.001;
-    const tremor = this.rumble * this.rumble * 0.16;
+    const tremor = this.rumble * this.rumble * 0.24;
     this.shake.set(
       (Math.random() * 2 - 1) * impulse + Math.sin(now * 13) * tremor,
       (Math.random() * 2 - 1) * impulse * 0.5 + Math.sin(now * 17 + 1.3) * tremor * 0.5,
