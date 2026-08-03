@@ -29,6 +29,15 @@ export class CameraRig {
   private readonly ndc = new Vector2();
   private trauma = 0;
   private shake = new Vector3();
+  /**
+   * Sustained ground rumble, 0..1 — distinct from trauma.
+   *
+   * Trauma is an impulse that decays; a stampede is a continuous thing you
+   * feel building as it closes and fading as it passes, which needs to be held
+   * rather than re-kicked every frame.
+   */
+  private rumble = 0;
+  private rumbleTarget = 0;
 
   constructor(aspect: number) {
     this.camera = new PerspectiveCamera(42, aspect, 0.5, 400);
@@ -69,17 +78,22 @@ export class CameraRig {
     const t = 1 - Math.exp(-this.followStiffness * dt);
     this.target.lerp(this.desired, t);
 
-    if (this.trauma > 0) {
-      this.trauma = Math.max(0, this.trauma - dt * 1.8);
-      const s = this.trauma * this.trauma * 1.6;
-      this.shake.set(
-        (Math.random() * 2 - 1) * s,
-        (Math.random() * 2 - 1) * s * 0.5,
-        (Math.random() * 2 - 1) * s,
-      );
-    } else {
-      this.shake.setScalar(0);
-    }
+    // Ease toward the target so a herd arriving builds instead of snapping on.
+    this.rumble += (this.rumbleTarget - this.rumble) * Math.min(1, dt * 3.5);
+
+    this.trauma = Math.max(0, this.trauma - dt * 1.8);
+    const impulse = this.trauma * this.trauma * 1.6;
+    // A felt tremor, not a screen-shaker. The first pass ran an amplitude of
+    // over a world unit at ~50Hz, which on a camera this close reads as the
+    // whole world vibrating and is genuinely nauseating. Low and slow: you
+    // should notice the ground moving, not fight the camera to aim.
+    const now = performance.now() * 0.001;
+    const tremor = this.rumble * this.rumble * 0.16;
+    this.shake.set(
+      (Math.random() * 2 - 1) * impulse + Math.sin(now * 13) * tremor,
+      (Math.random() * 2 - 1) * impulse * 0.5 + Math.sin(now * 17 + 1.3) * tremor * 0.5,
+      (Math.random() * 2 - 1) * impulse + Math.cos(now * 11 + 0.7) * tremor,
+    );
 
     this.apply();
   }
@@ -87,6 +101,11 @@ export class CameraRig {
   /** 0..1 — additive, saturating. Small hits kick less than big ones. */
   addTrauma(amount: number): void {
     this.trauma = Math.min(1, this.trauma + amount);
+  }
+
+  /** 0..1 — how hard the ground is shaking right now. Set every frame. */
+  setRumble(amount: number): void {
+    this.rumbleTarget = Math.max(0, Math.min(1, amount));
   }
 
   /** Project a screen-space NDC point onto the ground plane. */

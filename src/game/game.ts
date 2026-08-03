@@ -18,6 +18,8 @@ import { CarrySystem } from '../systems/carry';
 import { CombatSystem } from '../systems/combat';
 import { Faction } from '../systems/projectiles';
 import { MEETING_SLOW, SHELTER_GRACE, MeetingSystem } from '../systems/meetings';
+import { BombSystem } from '../systems/bombs';
+import { showInvite } from '../ui/invite-modal';
 import { Director } from './director';
 import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
@@ -68,7 +70,10 @@ export class Game {
   private readonly carry: CarrySystem;
   private readonly combat: CombatSystem;
   private readonly meetings: MeetingSystem;
+  private readonly bombs: BombSystem;
   private readonly director: Director;
+  /** Dismisses an open invite, if one is up. */
+  private closeInvite: (() => void) | null = null;
 
   private state: State = 'briefing';
   private hp = MAX_HP;
@@ -141,6 +146,7 @@ export class Game {
       shake: (amount) => this.rig.addTrauma(amount),
     });
     this.meetings = new MeetingSystem(this.scene);
+    this.bombs = new BombSystem(this.scene, (x, z) => this.onBombDetonated(x, z));
     this.director = new Director(
       this.scene,
       this.combat,
@@ -150,6 +156,7 @@ export class Game {
       this.map.waypoints,
       // A bigger diff is a busier map, on top of being a longer one.
       Math.min(1, mission.linesAdded / 400),
+      { onEvent: (title, subtitle, kind) => this.hud.announce(title, subtitle, kind) },
     );
 
     this.reticle = createReticle();
@@ -221,6 +228,7 @@ export class Game {
     if (!inAvoid) this.carry.update(dt, this.player, intent);
 
     this.combat.update(dt, this.player, this.enemyContext(), intent.fire, this.scene);
+    this.bombs.update(dt, Time.real);
     this.meetings.update(dt, this.player.x, this.player.z, Time.real, {
       onAttended: (m) => this.onAttendedMeeting(m.title),
       onMissed: (m) => this.onMissedMeeting(m.title),
@@ -256,6 +264,7 @@ export class Game {
         return true;
       },
       shake: (amount) => this.rig.addTrauma(amount),
+      throwBomb: (fx, fz, tx, tz) => this.bombs.throwAt(fx, fz, tx, tz),
     };
   }
 
@@ -284,6 +293,38 @@ export class Game {
       return;
     }
     this.hud.flash(`ATTENDED ${title} — ${SHELTER_GRACE}s COVER`, 'good');
+  }
+
+  /**
+   * A bomb went off: an invite lands on top of everything.
+   *
+   * The game does not pause underneath it. That's the entire joke — a modal
+   * demanding a decision about a meeting, while you are being shot at, and it
+   * accepts itself if you ignore it. Accepting drops a mandatory meeting on
+   * your position, so saying yes to the invite genuinely obliges you to go and
+   * stand in it.
+   */
+  private onBombDetonated(x: number, z: number): void {
+    if (this.state !== 'playing') return;
+    this.rig.addTrauma(0.5);
+    hitstop(0.06);
+
+    // Only one invite at a time; a stack of modals is a crash, not a joke.
+    if (this.closeInvite) return;
+
+    this.closeInvite = showInvite(this.uiRoot, this.rng, (choice) => {
+      this.closeInvite = null;
+      if (choice === 'decline') {
+        this.hud.flash('DECLINED', 'good');
+        return;
+      }
+      const meeting = this.meetings.schedule(this.rng, 'mandatory', x, z);
+      this.hud.announce(
+        'MEETING ACCEPTED',
+        meeting ? `${meeting.title} — attend it` : 'your calendar is full',
+        'warn',
+      );
+    });
   }
 
   /** Missing a mandatory meeting costs you a crate. */
@@ -383,6 +424,7 @@ export class Game {
     this.combat.projectiles.sync();
     this.renderPos.copy(this.player.object!.position);
 
+    this.rig.setRumble(this.stampedeRumble());
     // The camera runs on real time, not simulation time — it must keep moving
     // smoothly through hitstop.
     this.rig.update(realDt, this.renderPos.x, this.renderPos.z, this.aim.x, this.aim.z);
@@ -451,6 +493,24 @@ export class Game {
         enemy.group.scale.setScalar(1);
       }
     }
+  }
+
+  /**
+   * How hard the ground shakes, from how much herd is nearby and how close.
+   * Builds as they bear down on you and fades as they pass — you should feel a
+   * stampede coming before you can do anything about it.
+   */
+  private stampedeRumble(): number {
+    const REACH = 34;
+    let weight = 0;
+    for (const enemy of this.combat.enemies) {
+      if (!(enemy instanceof AiBro) || enemy.dying) continue;
+      const distance = Math.hypot(enemy.x - this.player.x, enemy.z - this.player.z);
+      if (distance > REACH) continue;
+      const closeness = 1 - distance / REACH;
+      weight += closeness * closeness;
+    }
+    return Math.min(1, weight / 7);
   }
 
   private debugText(): string {

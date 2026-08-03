@@ -15,6 +15,8 @@ const FAN_COUNT = 7;
 const SPIRAL_INTERVAL = 0.24;
 const SPIRAL_ARMS = 2;
 const INVITE_LIFE = 2.6;
+/** Seconds between invite bombs. */
+const BOMB_INTERVAL: [number, number] = [6.5, 9.5];
 
 /**
  * The Outlook Invite Swarm — mid-game mini-boss.
@@ -34,6 +36,7 @@ export class OutlookSwarm extends Enemy {
   radius = 1.5;
 
   private fireTimer = 1.2;
+  private bombTimer = 3;
   private spiralAngle = 0;
   private bob = 0;
   private readonly shell: Mesh;
@@ -87,6 +90,15 @@ export class OutlookSwarm extends Enemy {
       );
     }
     this.yaw = Math.atan2(dz, dx);
+
+    // Bombs are the signature attack — the fans are just cover fire between
+    // them.
+    this.bombTimer -= dt;
+    if (this.bombTimer <= 0) {
+      // Lead the target slightly so standing still is the worst option.
+      ctx.throwBomb(this.x, this.z, ctx.playerX, ctx.playerZ);
+      this.bombTimer = ctx.rng.range(BOMB_INTERVAL[0], BOMB_INTERVAL[1]) * (this.recurring ? 0.6 : 1);
+    }
 
     this.fireTimer -= dt;
     if (this.fireTimer > 0) return;

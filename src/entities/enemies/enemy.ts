@@ -37,6 +37,8 @@ export interface EnemyContext {
   /** Ask to land a hit on the player. Returns true if it actually landed. */
   hitPlayer(): boolean;
   shake(amount: number): void;
+  /** Lob an invite bomb at a ground position. */
+  throwBomb(fromX: number, fromZ: number, toX: number, toZ: number): void;
 }
 
 const HIT_FLASH_SECONDS = 0.16;

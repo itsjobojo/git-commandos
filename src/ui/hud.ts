@@ -48,6 +48,7 @@ export class Hud {
   private readonly barLabel: HTMLDivElement;
   private readonly status: HTMLDivElement;
   private readonly flashes: HTMLDivElement;
+  private readonly banners: HTMLDivElement;
   private readonly rows = new Map<
     string,
     {
@@ -92,14 +93,21 @@ export class Hud {
        font:12px/1.7 var(--font-mono); color:#5c7180; text-shadow:0 1px 2px rgba(0,0,0,.9);`,
     );
 
+    // Banners sit above the flash lane so an arriving event never gets buried
+    // under a run of cargo notifications.
+    this.banners = el(
+      'div',
+      `position:absolute; left:50%; top:12%; transform:translateX(-50%); width:min(720px, 88vw);`,
+    );
+
     this.flashes = el(
       'div',
-      `position:absolute; left:50%; top:14%; transform:translateX(-50%); text-align:center;
+      `position:absolute; left:50%; top:26%; transform:translateX(-50%); text-align:center;
        font:13px/1.9 var(--font-mono); letter-spacing:.12em;
        text-shadow:0 2px 6px rgba(0,0,0,.95);`,
     );
 
-    this.root.append(this.manifest, this.bar, this.status, this.flashes);
+    this.root.append(this.manifest, this.bar, this.status, this.banners, this.flashes);
     parent.appendChild(this.root);
   }
 
@@ -137,6 +145,55 @@ export class Hud {
       this.rows.set(file.name, { row, label, timer, bar, barFill });
       this.manifest.appendChild(wrapper);
     }
+  }
+
+  /**
+   * Big event banner — a named thing arriving, not a status line.
+   *
+   * Separate from `flash` on purpose: cargo changing hands is bookkeeping you
+   * read in passing, whereas a stampede coming down the valley is an event you
+   * need to react to, and the two shouldn't compete in the same lane.
+   */
+  announce(title: string, subtitle: string, kind: FlashKind = 'warn'): void {
+    const colour = FLASH_COLOUR[kind];
+    const wrap = el(
+      'div',
+      `text-align:center; opacity:0; transform:translateY(-14px);
+       transition:opacity .28s ease, transform .28s cubic-bezier(.2,.9,.3,1); margin-bottom:10px;`,
+    );
+
+    const heading = el(
+      'div',
+      `font:700 clamp(34px, 5.2vw, 62px)/1.1 var(--font-mono); letter-spacing:.14em;
+       text-transform:uppercase; color:${colour};
+       text-shadow:0 4px 24px rgba(0,0,0,.98), 0 0 38px ${colour}55;`,
+      title,
+    );
+    const rule = el(
+      'div',
+      `height:2px; width:70%; margin:8px auto 6px; background:${colour}; opacity:.55;`,
+    );
+    const sub = el(
+      'div',
+      `font:clamp(13px, 1.5vw, 17px)/1.4 var(--font-mono); letter-spacing:.24em;
+       text-transform:uppercase; color:#9fb4c0;`,
+      subtitle,
+    );
+
+    wrap.append(heading, rule, sub);
+    // One banner at a time. Stacked headlines are unreadable and there is only
+    // ever one thing that most needs your attention.
+    this.banners.textContent = '';
+    this.banners.appendChild(wrap);
+    requestAnimationFrame(() => {
+      wrap.style.opacity = '1';
+      wrap.style.transform = 'translateY(0)';
+    });
+    setTimeout(() => {
+      wrap.style.opacity = '0';
+      wrap.style.transform = 'translateY(-10px)';
+      setTimeout(() => wrap.remove(), 400);
+    }, 2600);
   }
 
   /** Transient centre-screen message — a file changing hands. */

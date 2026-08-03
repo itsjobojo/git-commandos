@@ -53,10 +53,20 @@ export class AiBro extends Enemy {
   private lastX = 0;
   private lastZ = 0;
 
+  /**
+   * Only some of the herd talks.
+   *
+   * When every bro had a bubble the screen turned into a wall of text and none
+   * of it landed — a stampede should be mostly thundering bodies with a few
+   * voices carrying over it. Silent bros also skip the canvas work entirely.
+   */
+  private readonly vocal: boolean;
+
   constructor(rng: { range: (a: number, b: number) => number }) {
     super();
     this.talkTimer = rng.range(0.2, TALK_INTERVAL[1]);
     this.bobPhase = rng.range(0, Math.PI * 2);
+    this.vocal = rng.range(0, 1) < 0.3;
 
     const quarterZip = new MeshStandardMaterial({
       color: PALETTE.bro,
@@ -130,12 +140,14 @@ export class AiBro extends Enemy {
       this.deathTimer = 0.32;
     }
 
-    this.talkTimer -= dt;
-    if (this.talkTimer <= 0) {
-      this.bubble.say(ctx.rng.pick(AI_BRO_LINES));
-      this.talkTimer = ctx.rng.range(TALK_INTERVAL[0], TALK_INTERVAL[1]);
+    if (this.vocal) {
+      this.talkTimer -= dt;
+      if (this.talkTimer <= 0) {
+        this.bubble.say(ctx.rng.pick(AI_BRO_LINES));
+        this.talkTimer = ctx.rng.range(TALK_INTERVAL[0], TALK_INTERVAL[1]);
+      }
+      this.bubble.update(dt);
     }
-    this.bubble.update(dt);
 
     this.shove(ctx);
     this.bobPhase += dt * 15;

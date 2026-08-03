@@ -49,7 +49,16 @@ const AVOID_TITLES = [
   '15 min? Wont take long',
 ];
 
-const BASE_RADIUS = 3.6;
+/**
+ * Meetings vary a lot in footprint. A "Quick chat?" should be a small tight
+ * puddle you can step around; an "All Hands" should be a sprawl you have to
+ * commit to crossing or route right around. One uniform size made every blob
+ * the same tactical problem.
+ */
+const RADIUS_RANGE: [number, number] = [2.6, 7.2];
+const WOBBLE_RANGE: [number, number] = [0.16, 0.46];
+/** Used only for spacing new meetings apart before their size is known. */
+const NOMINAL_RADIUS = 4.5;
 /**
  * Mandatory meetings live long enough to actually be reachable from across the
  * map — there is no point compelling you to attend something that expires
@@ -152,7 +161,16 @@ export class Meeting {
   private splat = 0;
 
   constructor(kind: MeetingKind, title: string, x: number, z: number, duration: number, rng: Rng) {
-    const profile = BlobProfile.generate(BASE_RADIUS, rng, 40, 0.3, 3);
+    // Size, lumpiness and lobe count all vary, so no two blobs occupy space
+    // the same way.
+    const radius = rng.range(RADIUS_RANGE[0], RADIUS_RANGE[1]);
+    const profile = BlobProfile.generate(
+      radius,
+      rng,
+      40,
+      rng.range(WOBBLE_RANGE[0], WOBBLE_RANGE[1]),
+      rng.int(2, 5),
+    );
     this.state = new MeetingState(kind, title, x, z, duration, profile);
 
     const colour = kind === 'mandatory' ? PALETTE.meeting : PALETTE.meetingAvoid;
@@ -171,14 +189,14 @@ export class Meeting {
       new SpriteMaterial({ map: titleTexture(title, kind), transparent: true, depthTest: false }),
     );
     label.scale.set(4.2, 1.05, 1);
-    label.position.y = 2.4;
+    label.position.y = 1.6 + radius * 0.28;
     label.center.set(0.5, 0);
 
     // Both kinds get a clock. Knowing an avoid blob clears in 4s turns it from
     // a wall into a decision: wait it out, or spend the time going around.
     this.countdown = new Sprite(new SpriteMaterial({ transparent: true, depthTest: false }));
     this.countdown.scale.set(2.6, 1.0, 1);
-    this.countdown.position.y = 3.5;
+    this.countdown.position.y = 2.7 + radius * 0.28;
     this.countdown.center.set(0.5, 0);
 
     this.group.position.set(x, 0.07, z);
@@ -204,6 +222,11 @@ export class Meeting {
 
   get z(): number {
     return this.state.z;
+  }
+
+  /** Longest reach of the blob, for spacing and framing. */
+  get radius(): number {
+    return this.state.profile.maxRadius;
   }
 
   contains(px: number, pz: number): boolean {
@@ -269,7 +292,7 @@ export class MeetingSystem {
     const live = this.meetings.filter((m) => !m.done);
     if (live.length >= MAX_LIVE_MEETINGS) return true;
     // Overlapping blobs are unreadable and stack their effects.
-    return live.some((m) => Math.hypot(m.x - x, m.z - z) < BASE_RADIUS * 1.9);
+    return live.some((m) => Math.hypot(m.x - x, m.z - z) < m.radius + NOMINAL_RADIUS + 4);
   }
 
   /** @returns the new meeting, or null if the calendar wouldn't take it. */
