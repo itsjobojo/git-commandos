@@ -92,17 +92,45 @@ export abstract class Enemy extends Entity {
     if (ctx.hitPlayer()) this.touchCooldown = 1.2;
   }
 
-  /** Move toward a point, sliding along walls rather than sticking to them. */
+  /**
+   * Move toward a point, sliding along walls rather than grinding to a halt.
+   *
+   * The naive version — step, then push out of any wall — nets zero movement
+   * when you walk straight into a face, because the push-out exactly cancels
+   * the step. Enemies lost most of their speed to it. Falling back to
+   * axis-separated movement recovers the component that isn't blocked, which
+   * is what lets a herd flow around a corner instead of piling into it.
+   */
   protected moveToward(dt: number, grid: Grid, tx: number, tz: number, speed: number): void {
     const dx = tx - this.x;
     const dz = tz - this.z;
     const d = Math.hypot(dx, dz);
     if (d < 1e-4) return;
+
     this.vx = (dx / d) * speed;
     this.vz = (dz / d) * speed;
-    this.x += this.vx * dt;
-    this.z += this.vz * dt;
-    grid.resolveCircle(this, this.radius);
     this.yaw = Math.atan2(dz, dx);
+
+    const startX = this.x;
+    const startZ = this.z;
+    const stepX = this.vx * dt;
+    const stepZ = this.vz * dt;
+    const wanted = Math.hypot(stepX, stepZ);
+    const meaningful = wanted * 0.4;
+
+    const attempt = (ax: number, az: number): number => {
+      this.x = startX + ax;
+      this.z = startZ + az;
+      grid.resolveCircle(this, this.radius);
+      return Math.hypot(this.x - startX, this.z - startZ);
+    };
+
+    if (attempt(stepX, stepZ) >= meaningful) return;
+    if (attempt(stepX, 0) >= meaningful) return;
+    if (attempt(0, stepZ) >= meaningful) return;
+
+    // Boxed in on both axes — stay put rather than jittering.
+    this.x = startX;
+    this.z = startZ;
   }
 }

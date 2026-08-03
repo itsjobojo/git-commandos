@@ -4,23 +4,27 @@ import { SpeechBubble } from '../../render/bubble';
 import { AI_BRO_LINES } from './ai-bro-lines';
 import { PALETTE } from '../../render/palette';
 
-const SPEED = 4.6;
-const CHARGE_SPEED = 9.4;
+const SPEED = 8.6;
 /** Knockback applied on contact, in units per second. */
 const SHOVE = 13;
 const TALK_INTERVAL: [number, number] = [2.2, 5.5];
+/** Failsafe despawn, in case a bro gets wedged and never reaches the far end. */
+const MAX_LIFETIME = 26;
+/** How close to the far end counts as arrived. */
+const ARRIVAL_RADIUS = 4;
 
 /**
  * The AI Bro.
  *
- * He does not shoot. He does not need to. He jogs at you in a quarter-zip,
- * shouting nonsense, and shoves you off the extraction pad — so the failure
- * mode is "I got talked off my own commit" rather than "I got shot". Contact
- * is knockback, not damage, which is the whole gag: the threat is that he
- * physically will not stop coming.
+ * He does not shoot and he is not chasing you — he is stampeding. The herd
+ * runs a line across the map, head down, and whatever is in the way gets
+ * shoved. Think buffalo, not zombies: the threat is being *in the path* of
+ * something that was never aimed at you, so it's read-and-reposition rather
+ * than fight-or-flee. Getting bulldozed off the extraction pad mid-hold is the
+ * signature failure — talked off your own commit by someone not even talking
+ * to you.
  *
- * They spawn as a herd during the extraction hold, which is the worst possible
- * moment, which is the point.
+ * Contact is knockback, never damage.
  */
 export class AiBro extends Enemy {
   readonly group = new Group();
@@ -31,13 +35,28 @@ export class AiBro extends Enemy {
   private readonly bubble = new SpeechBubble();
   private talkTimer: number;
   private readonly body: Mesh;
-  private bobPhase = Math.random() * Math.PI * 2;
+  private bobPhase = 0;
   /** Rises when a herd-mate is killed — "he's just early". */
   private urgency = 1;
+  /**
+   * The corridor sequence this bro is running, spawn end first.
+   *
+   * A single far-away destination isn't enough on a route map: a 90° bend puts
+   * a wall between the bro and the target and he grinds into it forever.
+   * Following the waypoints keeps the herd flowing down the canyon.
+   */
+  private route: Array<{ x: number; z: number }> = [];
+  private leg = 0;
+  private age = 0;
+  /** Watchdog: a bro pressed flat against a wall makes no progress at all. */
+  private stuckFor = 0;
+  private lastX = 0;
+  private lastZ = 0;
 
   constructor(rng: { range: (a: number, b: number) => number }) {
     super();
     this.talkTimer = rng.range(0.2, TALK_INTERVAL[1]);
+    this.bobPhase = rng.range(0, Math.PI * 2);
 
     const quarterZip = new MeshStandardMaterial({
       color: PALETTE.bro,
@@ -68,6 +87,12 @@ export class AiBro extends Enemy {
     this.object = this.group;
   }
 
+  /** Give this bro the corridor to run, in order. */
+  setRoute(points: Array<{ x: number; z: number }>): void {
+    this.route = points;
+    this.leg = 0;
+  }
+
   /** Called when a herd-mate dies. The rest speed up. */
   rally(): void {
     this.urgency = Math.min(1.75, this.urgency + 0.12);
@@ -75,11 +100,35 @@ export class AiBro extends Enemy {
 
   think(dt: number, ctx: EnemyContext): void {
     super.tick(dt);
+    this.age += dt;
 
-    // Beeline. No pathfinding — a bro does not go around things, and the walls
-    // slide him along, which reads as exactly as clumsy as intended.
-    const speed = (ctx.extracting ? CHARGE_SPEED : SPEED) * this.urgency;
-    this.moveToward(dt, ctx.grid, ctx.playerX, ctx.playerZ, speed);
+    // Run the corridor. No interest in the player whatsoever — you are just
+    // standing in it.
+    const target = this.route[this.leg];
+    if (target) {
+      this.moveToward(dt, ctx.grid, target.x, target.z, SPEED * this.urgency);
+      if (Math.hypot(target.x - this.x, target.z - this.z) < ARRIVAL_RADIUS) this.leg++;
+
+      // moveToward has no wall-slide correction, so a bro whose next waypoint
+      // sits straight through rock pushes into it and nets zero movement.
+      // Rather than teach the herd to pathfind, notice it and skip ahead — a
+      // stampede that visibly stalls against a corner is worse than one that
+      // takes a slightly odd line.
+      const progress = Math.hypot(this.x - this.lastX, this.z - this.lastZ);
+      this.stuckFor = progress < SPEED * dt * 0.25 ? this.stuckFor + dt : 0;
+      if (this.stuckFor > 0.8) {
+        this.leg++;
+        this.stuckFor = 0;
+      }
+      this.lastX = this.x;
+      this.lastZ = this.z;
+    }
+
+    if (this.leg >= this.route.length || this.age > MAX_LIFETIME) {
+      // Ran through and out the far side. Not a kill — just gone.
+      this.dying = true;
+      this.deathTimer = 0.32;
+    }
 
     this.talkTimer -= dt;
     if (this.talkTimer <= 0) {
@@ -89,7 +138,7 @@ export class AiBro extends Enemy {
     this.bubble.update(dt);
 
     this.shove(ctx);
-    this.bobPhase += dt * (ctx.extracting ? 15 : 9);
+    this.bobPhase += dt * 15;
   }
 
   /**

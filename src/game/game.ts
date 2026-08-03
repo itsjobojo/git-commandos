@@ -10,7 +10,7 @@ import { createFloor } from '../render/floor';
 import { createReticle } from '../render/reticle';
 import { Beacon } from '../render/pad';
 import { PALETTE } from '../render/palette';
-import { buildTestArena, findOpenSpots, type BuiltMap, type Spot } from '../world/arena';
+import { buildRoute, type BuiltMap } from '../world/arena';
 import { Player } from '../entities/player';
 import { Extraction } from '../systems/extraction';
 import { CargoLedger } from '../systems/cargo-ledger';
@@ -91,7 +91,7 @@ export class Game {
     this.scene.fog = new Fog(PALETTE.fog, 28, 82);
     this.lighting = new Lighting(this.scene);
 
-    this.map = buildTestArena(this.rng, mission.arenaCells, mission.arenaCells);
+    this.map = buildRoute(this.rng, mission.arenaCells, mission.arenaCells);
     this.scene.add(this.map.group);
     this.scene.add(createFloor(this.map.grid.width, this.map.grid.depth));
 
@@ -110,14 +110,19 @@ export class Game {
       mission.holdSeconds,
     );
 
-    this.ledger = new CargoLedger(mission.files, { rules: mission.rules });
+    // You land with the whole commit on your back. The run is getting it out,
+    // not finding it — a courier under fire, not a scavenger hunt.
+    this.ledger = new CargoLedger(mission.files, {
+      rules: mission.rules,
+      startCarrying: mission.files.length,
+    });
     this.carry = new CarrySystem(
       this.scene,
       this.ledger,
       this.map.grid,
-      this.cargoSpots(),
+      mission.files.map(() => this.map.spawn),
       mission.rules.stash,
-      this.stashSpot(),
+      mission.rules.stash === 'off' ? null : this.map.stash,
       {
         onDecayed: (record) => this.hud.flash(`LOST ${basename(record.name)}`, 'bad'),
         onDrop: (record) => this.hud.flash(`DROPPED ${basename(record.name)}`, 'warn'),
@@ -141,6 +146,7 @@ export class Game {
       this.meetings,
       this.map.grid,
       this.rng,
+      this.map.waypoints,
       // A bigger diff is a busier map, on top of being a longer one.
       Math.min(1, mission.linesAdded / 400),
     );
@@ -158,41 +164,6 @@ export class Game {
     this.aim.set(this.player.x + 6, 0, this.player.z);
 
     this.loop = new Loop(this.step, this.render);
-  }
-
-  /**
-   * Cargo placement: biggest diff goes to the farthest spot from extraction.
-   * A 200-line file should be a trek; a one-line tweak should be on your way
-   * out.
-   */
-  private cargoSpots(): Spot[] {
-    const nearestFirst = findOpenSpots(
-      this.map.grid,
-      this.rng,
-      this.mission.files.length,
-      this.map.extraction,
-      10,
-    ).filter((s) => Math.hypot(s.x - this.map.spawn.x, s.z - this.map.spawn.z) > 6);
-    const byWeight = this.mission.files
-      .map((f, i) => ({ i, added: f.added }))
-      .sort((a, b) => a.added - b.added);
-
-    const spots: Spot[] = new Array(this.mission.files.length);
-    byWeight.forEach((entry, rank) => {
-      spots[entry.i] = nearestFirst[rank] ?? nearestFirst[nearestFirst.length - 1] ?? this.map.spawn;
-    });
-    return spots;
-  }
-
-  /** Deliberately off the direct route — the stash has to cost you a detour. */
-  private stashSpot(): Spot | null {
-    if (this.mission.rules.stash === 'off') return null;
-    const mid = {
-      x: (this.map.spawn.x + this.map.extraction.x) / 2,
-      z: (this.map.spawn.z + this.map.extraction.z) / 2,
-    };
-    const candidates = findOpenSpots(this.map.grid, this.rng, 6, mid, 14);
-    return candidates[candidates.length - 1] ?? null;
   }
 
   /** Briefing → play. */
