@@ -24,12 +24,14 @@
   "license": "ISC",
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {
+    "@types/three": "^0.185.3",
     "typescript": "^5.9.3",
     "vite": "^8.0.1"
   },
   "dependencies": {
     "chiptune3": "^0.8.7",
     "open": "^10.1.0",
+    "three": "^0.185.1",
     "ws": "^8.18.0"
   }
 }

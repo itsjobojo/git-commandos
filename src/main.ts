@@ -1,32 +1,16 @@
-import { GameLoop } from './core/loop';
-import { Game } from './game';
-import { waitForAssets } from './core/assets';
-import { connectGitContext } from './git-context';
-import { initMusicPlayer } from './core/music';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCALE } from './constants';
+import { Game } from './game/game';
 
-const canvas = document.getElementById('game') as HTMLCanvasElement;
-canvas.width = CANVAS_WIDTH * SCALE;
-canvas.height = CANVAS_HEIGHT * SCALE;
-canvas.style.width = '100vmin';
-canvas.style.height = '100vmin';
+const canvas = document.getElementById('game') as HTMLCanvasElement | null;
+const uiRoot = document.getElementById('ui') as HTMLElement | null;
 
-const ctx = canvas.getContext('2d')!;
-ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-ctx.fillStyle = '#0f0f23';
-ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-ctx.fillStyle = '#2ecc71';
-ctx.font = '14px monospace';
-ctx.textAlign = 'center';
-ctx.fillText('Loading...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+if (!canvas || !uiRoot) {
+  throw new Error('index.html is missing #game or #ui');
+}
 
-Promise.all([waitForAssets(), connectGitContext(), initMusicPlayer()]).then(([_, gitContext]) => {
-  const game = new Game(canvas, gitContext);
-  const loop = new GameLoop(
-    (dt) => game.update(dt),
-    (alpha) => game.render(alpha)
-  );
-  // TEMP DEBUG HOOK — remove before commit
-  (window as unknown as Record<string, unknown>).__gc = { game, loop };
-  loop.start();
-});
+// M2 slots the git handshake in here: connect to the CLI over WebSocket, and
+// seed the mission from the commit message. Until then, sandbox.
+const game = new Game(canvas, uiRoot, { seed: 'sandbox' });
+game.start();
+
+// Handy while iterating; harmless in production.
+(window as unknown as Record<string, unknown>).__game = game;

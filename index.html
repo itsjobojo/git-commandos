@@ -4,26 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Git Commandos</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Jacquard+24&family=Pixelify+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <!-- Inline so there is no favicon request to 404 when served from dist/. -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2305070a'/><path d='M8 22 L16 8 L24 22 Z' fill='%234ade80'/></svg>">
   <style>
+    /* Self-hosted / system fonts only — the game must run with no network. */
+    :root {
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      --ink: #d7e3e0;
+      --dim: #6b7d79;
+      --accent: #4ade80;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #05070a; }
     body {
-      background: #0a0a0a;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow: hidden;
+      font-family: var(--font-mono);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      cursor: crosshair;
     }
-    canvas {
-      display: block;
+    #game { display: block; width: 100%; height: 100%; }
+    #ui {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      user-select: none;
     }
+    #ui > * { pointer-events: auto; }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
+  <div id="ui"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
