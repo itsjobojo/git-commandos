@@ -104,13 +104,9 @@ is the pincer the two of them exist to create.
 
 ![Intern pack](screenshots/04-intern-pack.jpg)
 
-**The Organizer** glides in around a minute deep and starts putting things in your
-calendar.
-
-![The Organizer](screenshots/05-organizer.jpg)
-
-What it schedules lands on the map: amber meetings you are compelled to attend (and are
-safe from fire inside), red ones that pin you in molasses if you step in.
+Meetings land on the map at random — no warning, nothing to shoot to stop them: amber
+ones you are compelled to attend (and are safe from fire inside), red ones that pin you
+in molasses if you step in.
 
 ![Mandatory and avoid meetings](screenshots/06-meetings.jpg)
 

@@ -5,11 +5,11 @@ import type { PerspectiveCamera } from 'three';
  * Edge-of-screen markers for things that matter and are not on screen.
  *
  * A pitched top-down camera shows roughly 16 world units either side of the
- * player and only ~9 behind. Recruiters open fire at 15 and Organizers park at
- * 15, so before this existed the ordinary experience of the game was losing
- * cargo to something you never saw. The camera pull-back closed part of that
- * gap; this closes the rest, and it is the only thing that can — the map is far
- * larger than any sane framing, so the beacon is off-screen for most of a run.
+ * player and only ~9 behind. Recruiters open fire at 15, so before this
+ * existed the ordinary experience of the game was losing cargo to something
+ * you never saw. The camera pull-back closed part of that gap; this closes
+ * the rest, and it is the only thing that can — the map is far larger than
+ * any sane framing, so the beacon is off-screen for most of a run.
  *
  * Markers are DOM rather than sprites: they must stay crisp, stay upright, and
  * never be occluded by a wall, none of which a world-space sprite gives you.

@@ -357,9 +357,9 @@ Inside a ring: your speed is quartered, pickups are blocked, and a "you're on mu
 banner appears while the timer runs. Attending a mandatory meeting is often the *correct*
 play — this isn't a hazard you always dodge, it's a tax you decide how to pay.
 
-The **Meeting Organizer** is the enemy that places them: keeps its distance, never attacks
-directly, and drops a fresh ring on your position every ~10s. Killing it stops new meetings
-but doesn't clear existing ones. It is, correctly, the highest-priority target in the game.
+Nothing places them. The director schedules meetings on its own clock and drops them
+wherever the spawn logic would otherwise put an enemy — on or near the route — so there
+is no source to kill and no warning before one lands.
 
 #### 📨 Outlook Invite Swarm (mini-boss)
 

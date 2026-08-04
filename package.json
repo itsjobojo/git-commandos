@@ -1,6 +1,6 @@
 {
   "name": "git-commandos",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Git, but you have to earn it. A 3D extraction shooter CLI that wraps git and gates real commits behind gameplay.",
   "bin": {
     "gcmds": "./cli/index.mjs",
@@ -32,8 +32,16 @@
     "commit",
     "productivity"
   ],
-  "author": "",
+  "author": "itsjobojo <johan.mickelin@gmail.com>",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/itsjobojo/git-commandos.git"
+  },
+  "homepage": "https://itsjobojo.github.io/git-commandos/",
+  "bugs": {
+    "url": "https://github.com/itsjobojo/git-commandos/issues"
+  },
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {
     "@types/three": "^0.185.3",

@@ -41,8 +41,8 @@ export function unitWedgeGeometry(): BufferGeometry {
     // Split across a mid ring rather than a bare triangle. The extra ring is
     // not about silhouette — it is the only way to get a non-linear brightness
     // falloff out of vertex colours, and a linear one leaves far too much
-    // brightness at mid-cone. An organizer's cone is 20 units long and 70
-    // degrees wide; at flat opacity that is a slab across the entire screen.
+    // brightness at mid-cone. A Recruiter's cone is 17 units long and 70
+    // degrees wide; at flat opacity that is a slab across most of the screen.
     const mid = 0.35;
     wedge.setAttribute(
       'position',

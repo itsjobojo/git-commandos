@@ -663,7 +663,7 @@ export function createHumanoid(spec: HumanoidSpec, phase: number): Humanoid {
  *
  * `speed` must be ground *actually covered* — `hypot(x - px, z - pz) / dt`, not
  * `hypot(vx, vz)`. `Enemy.moveToward` writes the intended velocity even when a
- * wall eats the step, and an organizer holding its band never clears its
+ * wall eats the step, and an enemy holding its distance never clears its
  * velocity at all; both would otherwise walk on the spot at full stride.
  *
  * The easing lives here rather than in the poser so it is frame-rate

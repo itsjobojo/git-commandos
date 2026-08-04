@@ -76,7 +76,7 @@ export class InviteStorm extends Enemy {
 
     // The invite is not parented to a hand — it hangs off its own holder just
     // above them, so it can keep leaning and rattling on its own axes while the
-    // arms hold still. Same trick as the organizer's calendar disc.
+    // arms hold still.
     //
     // The quarter turn is the whole reason the holder exists: the body is
     // authored facing +X like every other rig, and the invite is authored

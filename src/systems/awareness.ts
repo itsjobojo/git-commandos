@@ -176,25 +176,6 @@ export const SENSE_PROFILES = {
     hearing: 1.1,
     locked: null,
   },
-  /** The spotter. Longest eyes in the game and it never fires a shot. */
-  organizer: {
-    // Wide and long, but not so wide that its cone is most of the screen — it
-    // has to stand off at 15 units to do its job, so reach only needs to beat
-    // that comfortably.
-    halfAngle: 0.6,
-    reach: 20,
-    alertReachScale: 1.1,
-    peripheral: 6,
-    noticeSeconds: 0.8,
-    confirmSeconds: 0.6,
-    loseSeconds: 4,
-    forgetSeconds: 10,
-    turnRate: 2.2,
-    sweepAmplitude: 0.9,
-    sweepRate: 0.6,
-    hearing: 0.8,
-    locked: null,
-  },
   /** The mini-boss. Arrives with a banner; there is nothing to sneak past. */
   boss: {
     halfAngle: 0,

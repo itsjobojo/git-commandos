@@ -31,7 +31,6 @@ import { Loadout, WEAPONS, WEAPON_ORDER } from '../systems/weapons';
 import { showInvite } from '../ui/invite-modal';
 import { Director } from './director';
 import { AiBro } from '../entities/enemies/ai-bro';
-import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
 import { InviteStorm } from '../entities/enemies/invite-storm';
 import { Recruiter } from '../entities/enemies/recruiter';
 import { Intern } from '../entities/enemies/intern';
@@ -465,7 +464,6 @@ export class Game {
       return;
     }
     if (enemy instanceof InviteStorm) this.hud.flash('INVITE SERIES CANCELLED', 'good');
-    if (enemy instanceof MeetingOrganizer) this.hud.flash('NO FURTHER MEETINGS SCHEDULED', 'good');
   }
 
   /**
@@ -594,7 +592,6 @@ export class Game {
     }
 
     let chance = 0.3;
-    if (enemy instanceof MeetingOrganizer) chance = 0.6;
     if (enemy instanceof InviteStorm) chance = 1;
     if (this.rng.next() > chance) return;
 
@@ -922,14 +919,13 @@ export class Game {
 
   /**
    * Each archetype has its own sync because each animates differently — the
-   * bro jogs, the boss hovers, the organizer spins its calendar. Dispatching
-   * on type here keeps that animation code next to the behaviour it belongs to.
+   * bro jogs, the boss hovers. Dispatching on type here keeps that animation
+   * code next to the behaviour it belongs to.
    */
   private syncEnemies(alpha: number): void {
     for (const enemy of this.combat.enemies) {
       if (enemy instanceof AiBro) enemy.syncBro(alpha);
       else if (enemy instanceof InviteStorm) enemy.syncStorm(alpha);
-      else if (enemy instanceof MeetingOrganizer) enemy.syncOrganizer(alpha);
       else if (enemy instanceof Recruiter) enemy.syncRecruiter(alpha);
       else if (enemy instanceof Intern) enemy.syncIntern(alpha);
       else enemy.syncObject(alpha, 0);

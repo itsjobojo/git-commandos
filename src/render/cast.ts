@@ -27,7 +27,7 @@ import { strideCadence, type HumanoidSpec } from './humanoid';
  *    rendered as a torso hovering over its own shadow.
  */
 
-export type CastId = 'player' | 'intern' | 'recruiter' | 'ai-bro' | 'organizer' | 'invite-storm';
+export type CastId = 'player' | 'intern' | 'recruiter' | 'ai-bro' | 'invite-storm';
 
 const IDLE_CADENCE = 1.4;
 /**
@@ -42,7 +42,6 @@ const PLAYER_H = 1.64;
 const INTERN_H = 1.2;
 const RECRUITER_H = 1.52;
 const BRO_H = 1.66;
-const ORGANIZER_H = 1.56;
 const SWARM_H = 2.6;
 
 export const CAST: Readonly<Record<CastId, HumanoidSpec>> = {
@@ -250,53 +249,6 @@ export const CAST: Readonly<Record<CastId, HumanoidSpec>> = {
       bob: 0.055,
       lean: 0.12,
       sway: 0.035,
-    },
-  },
-
-  /**
-   * Robed and cowled — no legs, no stride, it glides. Both arms clasped.
-   *
-   * The bob is deliberately tiny: the skirt reaches the floor, so bob is
-   * literally the robe leaving the ground. 0.014 units is sub-pixel at this
-   * camera distance; 0.05 would not be, and a hovering authority figure is a
-   * different character.
-   *
-   * Skirt radius 0.484 — the widest part — against a 0.55 radius.
-   */
-  organizer: {
-    key: 'organizer',
-    height: ORGANIZER_H,
-    bulk: 1.02,
-    colours: {
-      garment: PALETTE.meeting,
-      legs: PALETTE.meeting,
-      boot: 0x4a3410,
-      skin: 0x6b4c0d,
-      // A shade under the robe, so the cowl reads as a separate mass from
-      // above rather than melting into the shoulders.
-      gear: 0xd08a0a,
-    },
-    headgear: 'cowl',
-    armour: 'none',
-    legs: 'robe',
-    arms: { left: 'fixed', right: 'fixed' },
-    armPose: { left: [0.25, 1.5, 0.55], right: [0.25, 1.5, 0.55] },
-    backpack: false,
-    emissive: PALETTE.meeting,
-    emissiveIntensity: 0.28,
-    roughness: 0.55,
-    gait: {
-      fullStrideSpeed: 1.6,
-      idleCadence: IDLE_CADENCE,
-      // No legs to derive from — this only has to drive the robe's breath.
-      cadencePerSpeed: 0.9,
-      maxCadence: 4,
-      legSwing: 0,
-      armSwing: 0,
-      armRest: 0,
-      bob: 0.014,
-      lean: 0,
-      sway: 0.02,
     },
   },
 

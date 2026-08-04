@@ -24,10 +24,10 @@ export class CameraRig {
    * Distance from the look-at point along the view axis.
    *
    * Set against the enemy engagement envelope, not by eye. A Recruiter opens
-   * fire from 15 units and an Organizer parks at 15; at the old distance of 22
-   * the view was only ~13.5 units wide either side of the player, so the things
-   * shooting you were reliably off-screen. 26 puts that whole envelope inside
-   * the frame laterally and ahead.
+   * fire from 15 units out; at the old distance of 22 the view was only ~13.5
+   * units wide either side of the player, so the thing shooting you was
+   * reliably off-screen. 26 puts that whole envelope inside the frame
+   * laterally and ahead.
    */
   distance = 26;
   /**

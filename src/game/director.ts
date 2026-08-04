@@ -1,6 +1,5 @@
 import type { Scene } from 'three';
 import { AiBro } from '../entities/enemies/ai-bro';
-import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
 import { InviteStorm } from '../entities/enemies/invite-storm';
 import { Recruiter } from '../entities/enemies/recruiter';
 import { Intern } from '../entities/enemies/intern';
@@ -72,7 +71,8 @@ export interface DirectorContext {
 export class Director {
   private recruiterTimer = 11;
   private internTimer = 16;
-  private organizerSpawned = false;
+  /** Seconds until the next meeting is scheduled — no source, no warning. */
+  private meetingTimer = 30;
   private stormSpawned = false;
   private stampedesReleased = 0;
   private midRunStampedeDone = false;
@@ -128,10 +128,9 @@ export class Director {
 
     this.updateRecruiters(dt, ctx);
     if (SPAWN_INTERNS) this.updateInterns(dt, ctx);
-    this.updateOrganizer(ctx);
     this.updateInviteStorm(ctx);
     this.updateStampede(dt, ctx);
-    this.updateScheduledMeetings();
+    this.updateScheduledMeetings(dt, ctx);
   }
 
   /**
@@ -193,16 +192,6 @@ export class Director {
       this.combat.add(intern, this.scene);
     }
     this.internTimer = (this.rng.range(14, 22) / (1 + this.intensity * 0.5)) * this.earlyRelief;
-  }
-
-  private updateOrganizer(ctx: DirectorContext): void {
-    if (this.organizerSpawned || this.elapsed < 38) return;
-    this.organizerSpawned = true;
-    const organizer = new MeetingOrganizer();
-    const spot = this.spawnPoint(ctx);
-    organizer.setPosition(spot.x, spot.z);
-    this.combat.add(organizer, this.scene);
-    this.events.onEvent?.('THE ORGANIZER', 'your calendar is no longer yours', 'warn');
   }
 
   /** Mid-game: once you're actually committed to the haul. */
@@ -304,36 +293,31 @@ export class Director {
   }
 
   /**
-   * Organizers ask; the director places, because it owns the meeting system.
-   *
-   * Takes no player position any more — every meeting is placed relative to
-   * what an organizer actually saw.
+   * Meetings land on their own clock — nothing schedules them, nothing warns
+   * you they're coming. They contest the same ground as everything else: the
+   * spot picked is wherever an enemy would spawn, on or near the route.
    */
-  private updateScheduledMeetings(): void {
-    for (const enemy of this.combat.enemies) {
-      if (!(enemy instanceof MeetingOrganizer) || enemy.dying) continue;
-      if (!enemy.wantsToSchedule()) continue;
+  private updateScheduledMeetings(dt: number, ctx: DirectorContext): void {
+    this.meetingTimer -= dt;
+    if (this.meetingTimer > 0) return;
+    this.meetingTimer = this.rng.range(18, 28) * this.earlyRelief;
 
-      const mandatory = this.rng.next() < 0.55;
-      // Mandatory meetings land on you; optional ones are placed just ahead,
-      // on the route you were probably about to take. "On you" now means where
-      // the organizer last *saw* you — break its line of sight and the meeting
-      // lands on the spot you already left.
-      const seenX = enemy.believedX;
-      const seenZ = enemy.believedZ;
-      const x = mandatory ? seenX : seenX + this.rng.range(-14, 14);
-      const z = mandatory ? seenZ : seenZ + this.rng.range(-14, 14);
-      if (!this.grid.isSolidWorld(x, z)) {
-        const meeting = this.meetings.schedule(this.rng, mandatory ? 'mandatory' : 'avoid', x, z);
-        if (meeting) {
-          this.events.onEvent?.(
-            mandatory ? `MANDATORY: ${meeting.title}` : `AVOID: ${meeting.title}`,
-            mandatory ? 'attend it — safe from fire inside' : 'step in and you are stuck',
-            mandatory ? 'info' : 'bad',
-          );
-        }
-      }
-      enemy.resetSchedule(this.rng.range(18, 28) * this.earlyRelief);
+    const mandatory = this.rng.next() < 0.55;
+    // Mandatory meetings land on the spot; optional ones scatter a bit wider,
+    // so an `avoid` blob is more likely to catch you off to the side of it
+    // rather than dead centre.
+    const anchor = this.spawnPoint(ctx);
+    const x = mandatory ? anchor.x : anchor.x + this.rng.range(-14, 14);
+    const z = mandatory ? anchor.z : anchor.z + this.rng.range(-14, 14);
+    if (this.grid.isSolidWorld(x, z)) return;
+
+    const meeting = this.meetings.schedule(this.rng, mandatory ? 'mandatory' : 'avoid', x, z);
+    if (meeting) {
+      this.events.onEvent?.(
+        mandatory ? `MANDATORY: ${meeting.title}` : `AVOID: ${meeting.title}`,
+        mandatory ? 'attend it — safe from fire inside' : 'step in and you are stuck',
+        mandatory ? 'info' : 'bad',
+      );
     }
   }
 
