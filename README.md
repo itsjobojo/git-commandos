@@ -118,8 +118,7 @@ Catch one and you get a modal. It accepts itself if you don't answer.
 
 ![Meeting invitation](screenshots/08-invite-modal.jpg)
 
-**The AI bro stampede** runs the length of the route, twice a run. Unarmed, oblivious,
-and moving — get out of the lane.
+**AI bro stampede** Moving straight on vibes can not be tamed. will not listen to anyone. better get out of the way
 
 ![AI bro stampede](screenshots/09-stampede.jpg)
 
