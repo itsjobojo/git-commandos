@@ -73,8 +73,9 @@ export class Player extends Entity {
     this.rig = createHumanoid(CAST.player, 0);
 
     // Weapons hang off a mount so swapping one is a model swap, not a rebuild.
-    // Positioned where the braced right hand actually lands.
-    this.weaponMount.position.set(0.4, 0.96, 0.17);
+    // Positioned where the braced right hand actually lands — a little ahead of
+    // it, since a weapon is gripped behind its own length.
+    this.weaponMount.position.set(0.38, 0.9, 0.13);
 
     // A ground-hugging cone that always points where you're facing. Cheap, but
     // it's the single biggest readability win on a top-down camera — a rig
@@ -95,7 +96,7 @@ export class Player extends Entity {
     // Sits clear of the body so the stack — and the filenames on it — read
     // from the top-down camera. You should be able to see your git status by
     // looking at yourself.
-    this.cargoAnchor.position.set(-0.72, 1.05, 0);
+    this.cargoAnchor.position.set(-0.7, 1, 0);
 
     this.root.add(this.rig.group, this.weaponMount, chevron, this.cargoAnchor);
     this.setWeapon('pistol');

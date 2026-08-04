@@ -1,5 +1,6 @@
 import { Group, Mesh, MeshStandardMaterial, Object3D } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
+import { SENSE_PROFILES } from '../../systems/awareness';
 import { createInviteMesh } from '../../render/invite';
 import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
 import { CAST } from '../../render/cast';
@@ -26,7 +27,7 @@ const BASE_LEAN = -0.5;
  * How high the held invite floats: high enough that its lower edge clears the
  * cowl and lands just under the raised hands, so they read as gripping it.
  */
-const HOLD_HEIGHT = 3.4;
+const HOLD_HEIGHT = 3.2;
 
 /**
  * The Invite Swarm — mid-game mini-boss.
@@ -63,7 +64,7 @@ export class InviteSwarm extends Enemy {
   private readonly rig: Humanoid;
 
   constructor() {
-    super();
+    super(SENSE_PROFILES.boss);
 
     this.rig = createHumanoid(CAST['invite-swarm'], (this.id * 2.399963) % (Math.PI * 2));
 
@@ -98,8 +99,8 @@ export class InviteSwarm extends Enemy {
     this.bob += dt;
 
     // Hold a distance — it wants to be seen, not touched.
-    const dx = ctx.playerX - this.x;
-    const dz = ctx.playerZ - this.z;
+    const dx = ctx.bodyX - this.x;
+    const dz = ctx.bodyZ - this.z;
     const distance = Math.hypot(dx, dz) || 1;
     const drift = distance > PREFERRED_RANGE ? 1 : distance < PREFERRED_RANGE - 4 ? -1 : 0;
     if (drift !== 0) {
@@ -122,7 +123,7 @@ export class InviteSwarm extends Enemy {
     this.bombTimer -= dt;
     if (this.bombTimer <= 0) {
       // Lead the target slightly so standing still is the worst option.
-      ctx.throwBomb(this.x, this.z, ctx.playerX, ctx.playerZ);
+      ctx.throwBomb(this.x, this.z, ctx.bodyX, ctx.bodyZ);
       this.bombTimer = ctx.rng.range(BOMB_INTERVAL[0], BOMB_INTERVAL[1]) * (this.recurring ? 0.6 : 1);
     }
 
