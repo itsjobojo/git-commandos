@@ -1,7 +1,7 @@
 {
   "name": "git-commandos",
   "version": "1.0.0",
-  "description": "Git, but you have to earn it. A 2D action game CLI that gates real git operations.",
+  "description": "Git, but you have to earn it. A 3D extraction shooter CLI that wraps git and gates real commits behind gameplay.",
   "bin": {
     "gcmds": "./cli/index.mjs",
     "git-commandos": "./cli/index.mjs"
@@ -22,7 +22,13 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": [],
+  "keywords": [
+    "git",
+    "cli",
+    "game",
+    "commit",
+    "productivity"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.28.2",

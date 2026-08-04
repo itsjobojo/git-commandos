@@ -62,7 +62,7 @@ export type SoundBank = keyof typeof SOUND_BANKS;
  * — but only this file ships a track, so dropping a module back in means
  * adding the file as well as changing this line.
  */
-export const MUSIC_TRACK = 'music/SnD_-_Apollo_products_kgs.mp3';
+export const MUSIC_TRACK = 'music/juhani-junkala-retro-game-music-pack-level-1.mp3';
 /**
  * Played only if `MUSIC_TRACK` is a tracker module and libopenmpt won't start
  * — it is a rendered copy of the chiptune, so it is only a sane fallback while
@@ -76,5 +76,5 @@ export const MUSIC_FALLBACK: string | null = null;
  */
 export const CHIPTUNE_WORKLET = 'audio/chiptune3.worklet.js';
 
-/** The title lockup, shown on the briefing screen. Transparent PNG. */
-export const LOGO = 'gcms-logo.png';
+/** The title lockup, shown on the briefing screen. Lossless WebP, transparent. */
+export const LOGO = 'gcms-logo.webp';

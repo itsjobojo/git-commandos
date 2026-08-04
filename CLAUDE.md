@@ -19,11 +19,19 @@ gcmds fake-files --count=8  # Create and stage N fake .ts files (1–15)
 gcmds play        # Launch game in sandbox mode (no real git state)
 gcmds commit -m "msg"       # The real thing — play to commit
 gcmds commit -m "msg" --extreme  # Extreme mode: lost files are deleted from disk
+gcmds status       # Not a gcmds command — forwarded to git verbatim
+npm pack           # Build + pack the publishable tarball (prepack runs the build)
 ```
+
+The published package is `cli/` + a pre-built `dist/`; `three` and `chiptune3` are dev
+dependencies because Vite bundles them into `dist/`. Nothing may run on install — a
+global install has no `public/`, no devDependencies, and a failing install script is a
+failing install. Build-time asset copying lives in `scripts/copy-audio-worklets.mjs`,
+which `build` and `prepare` (dev only) call.
 
 `GCMDS_NO_OPEN=1` stops the server launching a browser, so the protocol can be driven headlessly in tests.
 
-`pnpm test` runs vitest. The suites are deliberately few, and cover only what fails silently or fails expensively: `src/systems/cargo-ledger.test.ts` (the ledger decides which of the user's files get committed, unstaged or deleted — the one module that must never regress; add to it whenever you touch cargo rules), `world/arena.test.ts` (an unreachable extraction costs someone their commit; also that alternate routes really are second ways through and dead ends really are dead ends), `world/route.test.ts` (the clearance rules that make those topology guarantees true — cheap to assert on polylines, expensive to assert on a bitmap), `game/director.test.ts` (enemies spawned somewhere the player never walks are spawn budget spent on nothing, and it looks like an empty map rather than a bug), `systems/meetings.test.ts`, `assets/manifest.test.ts` (a mistyped asset path 404s quietly and nothing looks broken), and `cli/commit-trailer.test.mjs` (the only code that edits the user's commit message — the failures worth catching are the message not surviving intact and the footer stacking on a re-run). There is no linting configured.
+`pnpm test` runs vitest. The suites are deliberately few, and cover only what fails silently or fails expensively: `src/systems/cargo-ledger.test.ts` (the ledger decides which of the user's files get committed, unstaged or deleted — the one module that must never regress; add to it whenever you touch cargo rules), `world/arena.test.ts` (an unreachable extraction costs someone their commit; also that alternate routes really are second ways through and dead ends really are dead ends), `world/route.test.ts` (the clearance rules that make those topology guarantees true — cheap to assert on polylines, expensive to assert on a bitmap), `game/director.test.ts` (enemies spawned somewhere the player never walks are spawn budget spent on nothing, and it looks like an empty map rather than a bug), `systems/meetings.test.ts`, `assets/manifest.test.ts` (a mistyped asset path 404s quietly and nothing looks broken), `cli/commit-trailer.test.mjs` (the only code that edits the user's commit message — the failures worth catching are the message not surviving intact and the footer stacking on a re-run), and `cli/dispatch.test.mjs` (everything gcmds does not gate is forwarded to git, so a wrong classification costs someone a command they typed correctly). There is no linting configured.
 
 ## Architecture
 
@@ -31,9 +39,23 @@ gcmds commit -m "msg" --extreme  # Extreme mode: lost files are deleted from dis
 
 **CLI** (`cli/`) — Node.js ESM (`.mjs`). Never imports from `src/`.
 - `index.mjs` — argument parsing, command dispatch
-- `commands/*.mjs` — one file per subcommand; each exports `run(args, flags)` and `description`
-- `server.mjs` — HTTP + WebSocket server serving `dist/`; returns a Promise that resolves with the game result
-- `git-ops.mjs` — thin wrappers around `git` shell commands
+- `dispatch.mjs` — pure: is this invocation ours or git's, and which flags do we own
+- `passthrough.mjs` — hands an invocation to git and exits with its status
+- `commands/*.mjs` — one file per subcommand; each exports `run(args, flags)` and `description`, optionally `supports(args)` and `requiresRepo`
+- `commit-message.mjs` — the editor path for `commit` with no `-m`
+- `server.mjs` — HTTP + WebSocket server serving `dist/` on loopback; returns a Promise that resolves with the game result
+- `git-ops.mjs` — thin wrappers around `git`, argv as an array so paths and refs stay data
+
+### A superset of git, never a replacement for it
+
+`gcmds` gates a few commands and forwards every other invocation to `git` verbatim, so it can be aliased and used wherever `git` is. **The `git` command itself is never touched** — nothing installs, symlinks or shadows a `git` on PATH, and no code here tries to work out whether the `git` it is calling is really git. Aliasing is the user's decision, in their own shell config, reversible by them. Do not add a shim, a bin named `git`, or a postinstall that edits a shell profile.
+
+Two rules keep the forwarding from costing anyone a command:
+
+1. **A command only claims the shapes it fully understands.** `supports(args)` is a denylist-plus-shape check; `commit --amend`, a pathspec, `merge --abort`, a push refspec are all git's. The permissive mistake — claiming an invocation and then half-performing it — is the expensive one, so the default answer is always "not ours".
+2. **Only flags we own are consumed.** `parseFlags` takes the gcmds flags and leaves the rest in `args`, so `--no-verify` and friends reach the real command after the run.
+
+`cli/dispatch.test.mjs` covers exactly this: classification, flag ownership, and each gated command's `supports`.
 
 **Game** (`src/`) — TypeScript + Three.js, compiled by Vite, runs in the browser.
 
@@ -88,8 +110,16 @@ Create `cli/commands/<name>.mjs` exporting:
 export const description = 'one-line description';
 export const usage = 'gcmds <name> [options]';
 export async function run(args, flags) { ... }
+
+// Optional. Return false for any invocation the game should not claim — it is
+// then handed to the real git untouched. Required for anything that shadows a
+// real git subcommand.
+export function supports(args) { ... }
+
+// Optional, defaults to true.
+export const requiresRepo = false;
 ```
-It will appear automatically in `gcmds --help`.
+It will appear automatically in `gcmds --help`, and — because unknown commands pass through to git — it also shadows any real git subcommand or user alias of the same name. Pick names git does not use.
 
 ### Adding a new enemy
 

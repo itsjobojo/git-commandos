@@ -20,8 +20,9 @@ fetches it.
 | Asset | Path | Source | Licence | Added |
 |---|---|---|---|---|
 | SFX — 40 files (coin, hurt, explosion, jump, fall, error, move, select, shoot) | `public/sounds/*.ogg` | Kenney — Digital Audio / Impact Sounds | CC0 | pre-rebuild |
-| Music — the track that plays | `public/music/SnD_-_Apollo_products_kgs.mp3` | ID3: *"SnD - Apollo products kgs"*, comment `KeygenJukebox.com` | **unverified — see below** | 2026-08-03 |
-| chiptune3 worklets | `public/audio/*.worklet.js` | [chiptune3](https://www.npmjs.com/package/chiptune3) npm package (copied by `postinstall`) | MIT | pre-rebuild |
+| Music — the track that plays | `public/music/juhani-junkala-retro-game-music-pack-level-1.mp3` | [Juhani Junkala — Retro Game Music Pack](https://opengameart.org/content/5-chiptunes-action) ("Level 1"), re-encoded from the source WAV to mp3 (libmp3lame, VBR ~166kbps, 1.76MB vs. the source WAV's 12.5MB) | CC0 — stated by the author on the OGA page: *"These music tracks have been released under CC0 creative commons license. You can do anything you want with these tunes."* | 2026-08-04 |
+| chiptune3 worklet | `public/audio/chiptune3.worklet.js` | [chiptune3](https://www.npmjs.com/package/chiptune3) npm package (copied by `scripts/copy-audio-worklets.mjs`, a build step, not `postinstall`) | MIT | pre-rebuild |
+| Logo — title lockup on the briefing screen | `public/gcms-logo.webp` | Original (re-exported from `docs/logo.png` as lossless WebP; PNG's DEFLATE compressed it poorly — 358K vs WebP's 299K, pixel-identical) | project-owned | pre-rebuild |
 
 Not shipped, and deliberately outside `public/`:
 
@@ -34,12 +35,17 @@ else, and `src/assets/manifest.test.ts` fails if a path in it stops resolving.
 Every sound is in use as of the audio pass (2026-08-03); nothing in
 `public/sounds/` is dead weight.
 
-The libopenmpt worklets (1.5MB) are the exception: they are regenerated on
-every install by the `postinstall` step and are only needed when `MUSIC_TRACK`
-is a tracker module, which it currently is not. They are kept because the
-engine is one line away from being used again. To shed them, drop the
-`postinstall` script and the `chiptune3` dependency — `systems/music.ts` only
-imports it dynamically, so nothing else breaks.
+The libopenmpt worklet (1.5MB) is no longer shipped: it was only needed when
+`MUSIC_TRACK` is a tracker module, which it currently is not, and it was
+dead weight in every published tarball. `scripts/copy-audio-worklets.mjs`
+copies only `chiptune3.worklet.js` now. If a tracker module becomes the
+active track again, add `libopenmpt.worklet.js` back to the `WORKLETS` list
+in that script — `systems/music.ts` picks its engine off the file extension,
+so nothing else needs to change.
+
+`three` and `chiptune3` are `devDependencies`, not `dependencies`: both are
+compiled into the pre-built `dist/` at build time and neither is imported by
+`cli/*.mjs`, so a published install has no need to download either.
 
 Everything currently rendered in-game — floor, walls, cover, the player
 placeholder, the reticle — is **procedural geometry generated in code**. There
@@ -63,29 +69,26 @@ Three "hero" meshes — the file crate, the extraction beacon, and the player �
 are authored specifically for this game rather than pulled from a pack, so the
 game has an identity of its own. See REBUILD.md §5.
 
-## Open question: the music track's licence
+## Resolved: the music track's licence
 
-`SnD_-_Apollo_products_kgs.mp3` plays on every run unless `--no-music` is
-passed, and its licence is unverified. **It falls short of the rule at the top
-of this file** and needs resolving before publishing.
+The track that plays on every run (unless `--no-music`) was, until
+2026-08-04, `SnD_-_Apollo_products_kgs.mp3` — keygen music with no traceable
+rights holder (ID3 title *"SnD - Apollo products kgs"*, comment
+`KeygenJukebox.com`; a scene track ripped out of a crack tool and rehosted).
+The track it replaced before that was no better — *"those were the days"* by
+**Viraxor** (Dec 2021) from modarchive.org, licensed per-track with no
+licence stated in the module metadata.
 
-Its ID3 tags give the title *"SnD - Apollo products kgs"* and the comment
-`KeygenJukebox.com`. That is keygen music: a scene track ripped out of a crack
-tool and rehosted. No licence travels with it, the original artist is not
-reliably identified by the filename, and the site it came from is an archive
-rather than a rights holder.
+Both are gone from the working tree; `git log --all --diff-filter=D --
+'public/music/*'` finds them in history if either is ever wanted back for
+reference (their licence problems still apply — don't reuse either).
 
-The track it replaced was no better — *"those were the days"* by **Viraxor**
-(Dec 2021) from modarchive.org, which licenses per-track and stated no licence
-in the module metadata. It was deleted in the audio pass; `git show
-HEAD~1:public/music/chiptune.xm` still has it if it is ever wanted back.
-
-- The fix: confirm the licence with the rights holder, or drop in a CC0 track.
-  `MUSIC_TRACK` in `src/assets/manifest.ts` is one line, and `systems/music.ts`
-  picks its engine off the file extension, so a tracker module and an mp3 are
-  equally easy to swap in.
-- Nothing else depends on it. `--no-music` is a tested path and the game is
-  fully playable without any track at all.
+The current track, [Juhani Junkala's Retro Game Music
+Pack](https://opengameart.org/content/5-chiptunes-action) ("Level 1"), is
+CC0 with the licence stated directly by the author on the source page — see
+the ledger above. `MUSIC_TRACK` in `src/assets/manifest.ts` is one line, and
+`systems/music.ts` picks its engine off the file extension, so swapping tracks
+in the future (tracker module or browser-decoded) is still a one-line change.
 
 ## Exception: the Outlook mark — NOT CC0
 

@@ -15,7 +15,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = join(ROOT, 'node_modules', 'chiptune3');
 const TARGET = join(ROOT, 'public', 'audio');
-const WORKLETS = ['chiptune3.worklet.js', 'libopenmpt.worklet.js'];
+// libopenmpt.worklet.js (1.5MB) is deliberately not copied: it only renders
+// tracker-module tracks, and MUSIC_TRACK is currently an mp3. Restore it here
+// if a tracker module ever becomes the active track again.
+const WORKLETS = ['chiptune3.worklet.js'];
 
 if (!existsSync(SOURCE)) {
   console.error('  chiptune3 is not installed — run `pnpm install` first.');

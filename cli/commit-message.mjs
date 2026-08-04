@@ -1,16 +1,15 @@
 /**
  * Getting a commit message the way git gets one.
  *
- * As a drop-in, `git commit` with no `-m` has to keep working, and it has to
- * feel like git: the user's editor, a template they can read, comment lines
- * stripped, an empty message aborting the whole thing. Anything less and the
- * shim quietly costs people the habit they came with.
+ * `gcmds commit` with no `-m` has to feel like `git commit` with no `-m`: the
+ * user's editor, a template they can read, comment lines stripped, an empty
+ * message aborting the whole thing. Anything less and swapping `git` for
+ * `gcmds` quietly costs people a habit they came with.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { realGit } from './real-git.mjs';
 import { getConfig, getGitDir, getStatusForTemplate } from './git-ops.mjs';
 
 /**
@@ -66,7 +65,7 @@ export function readMessageFromEditor({ files }) {
 
   // `git var GIT_EDITOR` resolves the whole precedence chain for us:
   // GIT_EDITOR, core.editor, VISUAL, EDITOR, then the build-time default.
-  const editor = execFileSync(realGit(), ['var', 'GIT_EDITOR'], { encoding: 'utf-8' }).trim();
+  const editor = execFileSync('git', ['var', 'GIT_EDITOR'], { encoding: 'utf-8' }).trim();
   // The editor setting is a command line, not a program name (`code --wait`),
   // so it goes through a shell — same as git.
   const result = spawnSync(`${editor} "${path}"`, { shell: true, stdio: 'inherit' });

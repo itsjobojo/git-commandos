@@ -402,7 +402,7 @@ export function inBounds(point: Spot, cols: number, rows: number, tile: number):
  * fraction the tests police is 0.18–0.6; rooms and corridors overlap at every
  * junction, so the net always lands under this.
  */
-const OPEN_TARGET = 0.66;
+const OPEN_TARGET = 0.86;
 /** Of the open budget, the share spent on corridors rather than rooms. */
 const CORRIDOR_SHARE = 0.62;
 /** Never cut narrower than this: the safety re-cut is 3.4, and one tile is 2. */
@@ -411,12 +411,17 @@ const MIN_CORRIDOR_RADIUS = 3.6;
  * Widest a corridor may be, as a fraction of the arena's shorter side.
  *
  * This is the knob that trades openness against branching, and it binds on
- * small maps where the area budget alone would ask for something enormous. Every
+ * every map — the area budget alone would ask for something enormous. Every
  * unit of corridor width costs two units of the gap the next corridor needs to
  * keep clear of it, so pushing this up makes the map read more open and leaves
  * less room for the alternates and dead ends that make it worth exploring.
+ *
+ * Raised alongside `ARENA_SCALE`: streets this wide would have eaten the
+ * branching on the old arenas, but on three times the footprint there is room
+ * for both. Openness is a fraction of the map, so this is what actually decides
+ * whether the city reads as boulevards or alleys.
  */
-const CORRIDOR_CAP = 0.058;
+const CORRIDOR_CAP = 0.076;
 
 /**
  * Solve corridor and room widths from an area budget, before a single point is
@@ -448,7 +453,7 @@ export function solveRadii(cols: number, rows: number, tile: number, files: numb
   const room = clamp(
     Math.sqrt((budget * (1 - CORRIDOR_SHARE)) / (Math.PI * predictedRooms)),
     corridor * 1.2,
-    span * 0.11,
+    span * 0.13,
   );
   return { corridor, room };
 }

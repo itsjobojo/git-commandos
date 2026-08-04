@@ -14,7 +14,10 @@ export class Lighting {
   private readonly offset = new Vector3(-18, 34, 14);
 
   constructor(scene: Scene, shadowRadius = 34) {
-    this.sun = new DirectionalLight(0xdfeaff, 2.4);
+    // Moonlight, not floodlight. The whole rig is pitched down together — sun,
+    // fill and exposure — rather than dimming one of them, because dropping the
+    // key alone just flattens the city into its own fill.
+    this.sun = new DirectionalLight(0xdfeaff, 1.95);
     this.sun.position.copy(this.offset);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -38,10 +41,13 @@ export class Lighting {
     // lifted the whole city into a uniform grey and flattened out the one thing
     // that makes it read as night — the contrast between a lit window and the
     // wall around it.
-    this.hemi = new HemisphereLight(0x9fc4ff, PALETTE.floor, 0.58);
+    this.hemi = new HemisphereLight(0x9fc4ff, PALETTE.floor, 0.42);
     scene.add(this.hemi);
 
-    this.ambient = new AmbientLight(0x8ea6c0, 0.34);
+    // Ambient comes down least of the three. It is the floor under every
+    // surface in shadow, and a hostile standing in one still has to be a thing
+    // you can see and shoot before it is a mood.
+    this.ambient = new AmbientLight(0x8ea6c0, 0.26);
     scene.add(this.ambient);
   }
 

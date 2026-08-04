@@ -19,6 +19,24 @@ import { DEFAULT_RULES, type GitContext, type Rules, type StagedFile } from '../
  */
 export const MAX_HP = 7;
 
+/**
+ * Linear multiplier on every arena, applied to the tuned cell counts below.
+ *
+ * `√3`, because "three times bigger" is about the ground you cover, not the
+ * length of one side: this is 3× the footprint, roughly 1.7× the walk from
+ * spawn to pad. Tripling the *side* instead would be nine times the city — a
+ * long trudge through blocks nothing is happening in, which is the opposite of
+ * what a bigger map is for.
+ *
+ * It scales the result rather than the formula so the two knobs underneath it
+ * (lines added, file count) keep their tuned relationship to each other, and so
+ * there is exactly one number to change if this turns out too big or too small.
+ * Corridor and room widths are solved as fractions of the arena (see
+ * `solveRadii`), so a scaled map is a grander version of the same place, not
+ * the same streets stranded in more rock.
+ */
+export const ARENA_SCALE = Math.sqrt(3);
+
 export interface Mission {
   /**
    * Drives the map, the spawns and the dialogue. Rolled fresh on every deploy,
@@ -92,7 +110,7 @@ export function buildMission(ctx: GitContext | null): Mission {
       holdSeconds: 6,
       // Same formula a real commit gets, rather than a hardcoded 44 — otherwise
       // the sandbox is not a sample of the thing it exists to preview.
-      arenaCells: Math.round(clamp(34 + SANDBOX_FILES.length * 2.8, 44, 72)),
+      arenaCells: Math.round(clamp(34 + SANDBOX_FILES.length * 2.8, 44, 72) * ARENA_SCALE),
     };
   }
 
@@ -118,7 +136,7 @@ export function buildMission(ctx: GitContext | null): Mission {
     // it — on a small arena the branches have nowhere to go and the walk folds
     // back on itself instead of exploring.
     arenaCells: Math.round(
-      clamp(Math.max(36 + ctx.linesAdded / 12, 34 + ctx.files.length * 2.8), 44, 72),
+      clamp(Math.max(36 + ctx.linesAdded / 12, 34 + ctx.files.length * 2.8), 44, 72) * ARENA_SCALE,
     ),
   };
 }

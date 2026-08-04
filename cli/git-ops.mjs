@@ -1,16 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { unlinkSync } from 'node:fs';
-import { realGit } from './real-git.mjs';
 
 /**
- * Every git call goes through the resolved real binary, never the name `git`.
- * Under the shim, a bare `git` on PATH is us — calling it here would recurse.
- *
- * Arguments go as an array, so a branch called `--force` or a path with a space
- * is data rather than syntax.
+ * Arguments go to git as an array rather than a command string, so a branch
+ * called `--force` or a path with a space in it is data rather than syntax.
  */
 const git = (args, input) =>
-  execFileSync(realGit(), args, {
+  execFileSync('git', args, {
     cwd: process.cwd(),
     encoding: 'utf-8',
     ...(input === undefined ? {} : { input }),

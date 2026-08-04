@@ -20,7 +20,14 @@ In **extreme mode**, the stakes are worse: lost files are deleted from disk.
 
 ```bash
 npm install -g git-commandos
-# or run locally
+```
+
+Needs Node 18.17+ and a real git on your PATH. The game ships pre-built — there is
+nothing to compile after install.
+
+```bash
+# or run from a clone
+pnpm install && pnpm build
 node cli/index.mjs --help
 ```
 
@@ -36,6 +43,44 @@ node cli/index.mjs --help
 | `gcmds play` | Launch sandbox mode (no real git state) |
 
 All commands accept `--extreme`: on loss, files are **deleted from disk** instead of just unstaged.
+
+## Drop in `gcmds` wherever you type `git`
+
+`gcmds` is a superset of git. Anything it does not gate, it hands to git exactly as
+typed — same output, same exit code:
+
+```bash
+gcmds status
+gcmds log --oneline -10
+gcmds rebase -i HEAD~3
+gcmds commit -m "earn it"   # ← this one opens the game
+```
+
+So you can alias it and forget about it:
+
+```bash
+alias git=gcmds   # in ~/.zshrc or ~/.bashrc
+```
+
+**`git` itself is never touched.** Nothing is installed, symlinked or shadowed on your
+PATH — the alias is yours to add and remove, and every script, hook and tool on your
+machine keeps calling the real `git` exactly as before.
+
+What is gated and what is not:
+
+- **Gated:** `commit`, `push`, `merge` — in the plain forms, the ones that mean "ship
+  what I have".
+- **Passed through:** everything else, and any form of those three the game has no
+  business interpreting — `--amend`, `--fixup`, `-p`, a pathspec, `merge --abort`,
+  `merge --continue`, `push --delete`, refspecs like `origin :old-branch`. Those go to
+  git exactly as typed.
+- Flags you pass along (`--no-verify`, `--signoff`, `-u`) are forwarded to the real
+  command once you have survived.
+- `gcmds commit` with no `-m` still opens your editor, with your template, first.
+- Hooks still run. `-C`, `--git-dir` and the rest of git's global options are never
+  parsed by us — an invocation carrying them is git's.
+
+Aliased and want to skip the game once? Type `\git` (or `command git`).
 
 ## How it works
 

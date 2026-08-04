@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInsideGitRepo } from './git-ops.mjs';
 import { RULE_OPTIONS } from './rules.mjs';
@@ -23,15 +23,6 @@ const GCMDS_FLAGS = [
 
 const argv = process.argv.slice(2);
 
-/**
- * True when we are standing in for git — installed as `git` on PATH via
- * `gcmds shim install`. In that mode even bare `git` and `git --help` belong to
- * git; we only ever step in front of the handful of commands we gate.
- */
-const gitMode =
-  process.env.GCMDS_GIT_MODE === '1' ||
-  ['git', 'git.exe'].includes(basename(process.argv[1] || '').toLowerCase());
-
 function commandNames() {
   return readdirSync(COMMANDS_DIR)
     .filter((f) => f.endsWith('.mjs') && !f.startsWith('_') && !f.endsWith('.test.mjs'))
@@ -49,8 +40,8 @@ function version() {
 async function listCommands() {
   console.log('\n  Git Commandos — git, but you have to earn it.\n');
   console.log('  Usage: gcmds <command> [options]\n');
-  console.log('  Any command not listed below is handed to the real git untouched,');
-  console.log('  so gcmds can stand in for git wherever you already use it.\n');
+  console.log('  Any command not listed below is handed to git untouched, so gcmds');
+  console.log('  does everything git does — you just type gcmds instead.\n');
   console.log('  Commands:');
   for (const name of commandNames()) {
     try {
@@ -76,17 +67,17 @@ async function listCommands() {
 }
 
 /**
- * Hand the invocation back to git, saying so first when someone is watching.
- * The note matters: typing `git commit --amend` under the shim and getting a
- * plain commit should not look like the game silently declined to run.
+ * Hand the invocation to git, saying so first when someone is watching. The
+ * note matters: typing `gcmds commit --amend` and getting a plain amend should
+ * not look like the game silently declined to run.
  */
 function decline(reason) {
-  if (process.stderr.isTTY) console.error(`  ${reason} — running real git.`);
+  if (process.stderr.isTTY) console.error(`  ${reason} — running git.`);
   passThrough(argv);
 }
 
 async function main() {
-  const dispatch = classify(argv, { commands: commandNames(), gitMode });
+  const dispatch = classify(argv, { commands: commandNames() });
 
   if (dispatch.kind === 'help') {
     await listCommands();
@@ -110,7 +101,7 @@ async function main() {
   // A gated command only claims the shapes it fully understands. `git commit
   // --amend`, `git merge --abort`, `git push --delete` and friends are git's.
   if (command.supports && !command.supports(args)) {
-    decline(`"git ${[dispatch.command, ...args].join(' ')}" is not something the game gates`);
+    decline(`"${[dispatch.command, ...args].join(' ')}" is not something the game gates`);
   }
 
   if (command.requiresRepo !== false && !isInsideGitRepo()) {

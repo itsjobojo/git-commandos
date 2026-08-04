@@ -186,9 +186,14 @@ describe('buildRoute', () => {
    * fight and flank in, bounded enough that the direction of travel is never
    * in question. Too tight and it's a maze you thread; too loose and A-to-B
    * stops meaning anything.
+   *
+   * The band moved up with `CORRIDOR_CAP` — these are boulevards now, and they
+   * land around half the map rather than four cells in ten. The upper bound is
+   * the one doing the work: past roughly two thirds the walls stop being a
+   * route and start being scenery in a field.
    */
   it('leaves open ground that is still clearly bounded', () => {
-    for (const cells of [36, 44, 60]) {
+    for (const cells of [76, 96, 125]) {
       for (let seed = 0; seed < 8; seed++) {
         const map = buildRoute(new Rng(seed), { cols: cells, rows: cells, tile: TILE });
         let open = 0;
@@ -196,8 +201,8 @@ describe('buildRoute', () => {
           if (map.grid.solid[i] === CELL.EMPTY) open++;
         }
         const fraction = open / map.grid.solid.length;
-        expect(fraction, `${cells} seed ${seed}`).toBeGreaterThan(0.18);
-        expect(fraction, `${cells} seed ${seed}`).toBeLessThan(0.6);
+        expect(fraction, `${cells} seed ${seed}`).toBeGreaterThan(0.24);
+        expect(fraction, `${cells} seed ${seed}`).toBeLessThan(0.68);
       }
     }
   });
@@ -221,7 +226,7 @@ describe('buildRoute', () => {
       }
       return total / 8;
     };
-    expect(Math.abs(measure(36) - measure(64))).toBeLessThan(0.15);
+    expect(Math.abs(measure(76) - measure(125))).toBeLessThan(0.15);
   });
 
   it('keeps the border sealed', () => {
@@ -257,7 +262,18 @@ describe('buildRoute', () => {
  * the map lying to them.
  */
 describe('buildRoute — topology', () => {
-  const SIZES = [44, 56, 72];
+  /**
+   * The range `mission.ts` actually asks for, after `ARENA_SCALE`.
+   *
+   * Quality properties — how much branches, how open, how often the planner
+   * falls back — are measured where the game lives, because they are the result
+   * of solving fixed budgets against the arena's size. Streets wide enough to
+   * read as boulevards on this footprint crowd out the alternates on a 44-cell
+   * map, and a map that size has not been built since. Invariants are a
+   * different matter, and the ones below that hardcode a small arena stay small
+   * on purpose: an unreachable extraction must be impossible at any size.
+   */
+  const SIZES = [76, 96, 125];
 
   /**
    * Alternates are checked by reachability rather than by plugging the trunk
@@ -399,7 +415,7 @@ describe('buildRoute — topology', () => {
     const branches = (files: number): number => {
       let total = 0;
       for (let seed = 0; seed < 40; seed++) {
-        total += buildRoute(new Rng(seed), { cols: 64, rows: 64, tile: TILE, files }).routes.length;
+        total += buildRoute(new Rng(seed), { cols: 96, rows: 96, tile: TILE, files }).routes.length;
       }
       return total / 40;
     };

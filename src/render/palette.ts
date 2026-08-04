@@ -8,18 +8,25 @@ import { Color } from 'three';
  * Terminal-brutalist: near-black environment, git green for you and yours,
  * amber for meetings, hot pink for hostiles.
  */
+/**
+ * The environment sits a stop lower than it used to, along with the lighting
+ * rig. Only the ground, the walls and the air move: the gameplay colours below
+ * are untouched, so a darker city is also a higher-contrast one — your green,
+ * the crate cyan and the hostile pink all read further across a map that is now
+ * three times the size.
+ */
 export const PALETTE = {
-  void: 0x05070a,
-  fog: 0x070b10,
+  void: 0x030507,
+  fog: 0x05080c,
 
-  floor: 0x18222c,
-  floorLine: 0x2c4150,
-  floorLineMajor: 0x53788c,
+  floor: 0x141c25,
+  floorLine: 0x243746,
+  floorLineMajor: 0x476a7d,
 
-  wall: 0x27333f,
-  wallTop: 0x33424f,
-  wallEdge: 0x4a6374,
-  cover: 0x2e3d4a,
+  wall: 0x222d38,
+  wallTop: 0x2d3b47,
+  wallEdge: 0x43596a,
+  cover: 0x28353f,
 
   /**
    * Parks. Deliberately dark and desaturated: the player is git green

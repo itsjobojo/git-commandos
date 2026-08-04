@@ -77,7 +77,7 @@ function everySpawn(
     label: string,
   ) => void,
 ): void {
-  for (const cells of [44, 56, 72]) {
+  for (const cells of [76, 96, 125]) {
     for (let seed = 0; seed < 20; seed++) {
       const { map, probe } = directorFor(seed, cells);
       for (let w = 0; w < map.waypoints.length - 1; w++) {

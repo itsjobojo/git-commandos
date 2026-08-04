@@ -5,40 +5,37 @@ import { supports as mergeSupports, parseMergeArgs } from './commands/merge.mjs'
 import { supports as pushSupports } from './commands/push.mjs';
 
 /**
- * Standing in front of `git` means every wrong answer here costs someone a
- * command they typed correctly. The failure that matters is the permissive
- * one — claiming an invocation we then only half-perform.
+ * `gcmds` forwards everything it does not gate, so every wrong answer here
+ * costs someone a command they typed correctly. The failure that matters is
+ * the permissive one — claiming an invocation we then only half-perform.
  */
 
-const COMMANDS = ['commit', 'push', 'merge', 'play', 'quick-run', 'fake-files', 'shim'];
-const asGcmds = (argv) => classify(argv, { commands: COMMANDS, gitMode: false });
-const asGit = (argv) => classify(argv, { commands: COMMANDS, gitMode: true });
+const COMMANDS = ['commit', 'push', 'merge', 'play', 'quick-run', 'fake-files'];
+const dispatch = (argv) => classify(argv, { commands: COMMANDS });
 
 describe('classify', () => {
   it('claims its own commands', () => {
-    expect(asGit(['commit', '-m', 'x'])).toEqual({ kind: 'run', command: 'commit', args: ['-m', 'x'] });
+    expect(dispatch(['commit', '-m', 'x'])).toEqual({ kind: 'run', command: 'commit', args: ['-m', 'x'] });
   });
 
   it('hands every other git command straight back', () => {
     for (const cmd of ['status', 'rebase', 'log', 'add', 'checkout', 'stash', 'help']) {
-      expect(asGit([cmd]).kind).toBe('passthrough');
+      expect(dispatch([cmd]).kind).toBe('passthrough');
     }
   });
 
   it('does not try to parse git global options', () => {
     // `-C dir` means the subcommand is not argv[0]; rather than track that, we
-    // decline the whole invocation.
-    expect(asGit(['-C', '/tmp/repo', 'commit', '-m', 'x']).kind).toBe('passthrough');
-    expect(asGit(['--git-dir=/tmp/.git', 'commit']).kind).toBe('passthrough');
-    expect(asGit(['--version']).kind).toBe('passthrough');
-    expect(asGit([]).kind).toBe('passthrough');
+    // hand the whole invocation to git.
+    expect(dispatch(['-C', '/tmp/repo', 'commit', '-m', 'x']).kind).toBe('passthrough');
+    expect(dispatch(['--git-dir=/tmp/.git', 'commit']).kind).toBe('passthrough');
+    expect(dispatch(['--no-pager', 'log']).kind).toBe('passthrough');
   });
 
-  it('keeps its own help and version when invoked as gcmds', () => {
-    expect(asGcmds([]).kind).toBe('help');
-    expect(asGcmds(['--help']).kind).toBe('help');
-    expect(asGcmds(['--version']).kind).toBe('version');
-    expect(asGcmds(['status']).kind).toBe('passthrough');
+  it('keeps its own help and version', () => {
+    expect(dispatch([]).kind).toBe('help');
+    expect(dispatch(['--help']).kind).toBe('help');
+    expect(dispatch(['--version']).kind).toBe('version');
   });
 });
 

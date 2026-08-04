@@ -17,9 +17,11 @@ export function createRenderer(canvas: HTMLCanvasElement): WebGLRenderer {
   renderer.setClearColor(PALETTE.void, 1);
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
-  // Applied after bloom, in OutputPass, so raising it lifts the final image
-  // without feeding the bloom threshold any more to work with.
-  renderer.toneMappingExposure = 1.45;
+  // Applied after bloom, in OutputPass, so moving it changes the final image
+  // without feeding the bloom threshold any more or less to work with — which
+  // is exactly what a night pass wants: the concrete comes down, the lit
+  // windows and the tracers keep their glow.
+  renderer.toneMappingExposure = 1.34;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFShadowMap;
 

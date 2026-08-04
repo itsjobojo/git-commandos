@@ -15,7 +15,8 @@ import {
 import { Rng } from '../core/rng';
 
 const TILE = 2;
-const SIZES = [36, 44, 56, 72];
+/** The range `mission.ts` actually asks for, after `ARENA_SCALE`. */
+const SIZES = [76, 96, 110, 125];
 const FILE_COUNTS = [1, 4, 8, 15];
 
 function trunkOf(plan: RoutePlan): Spot[] {
