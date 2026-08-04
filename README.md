@@ -5,16 +5,16 @@
   <p>
     <strong>Every commit is an extraction mission.</strong>
     <br>
-    A chaotic 2D action-game CLI where real git commands only run if you survive.
+    A 3D top-down extraction shooter in your browser, where real git commands only run if you survive.
   </p>
 
 </center>
 
 ## What is this?
 
-Your staged files become your lives. Take a hit, lose a life. Run out of lives, and those files are unstaged instead of committed.
+Your staged files are cargo. You carry them across a hostile city to the extraction pad and hold it while the commit is written. Take a hit and the crate on top is knocked loose, decaying on the ground until you go back for it — or don't.
 
-In **extreme mode**, the stakes are worse: lost files are deleted from disk.
+Whatever you fail to extract is unstaged instead of committed. In **extreme mode**, the stakes are worse: lost files are deleted from disk.
 
 ## Install
 
@@ -82,30 +82,87 @@ What is gated and what is not:
 
 Aliased and want to skip the game once? Type `\git` (or `command git`).
 
-## How it works
+## What a run looks like
 
-Running any command opens the game in your browser. Your staged files (or commits, for push/merge) become your HP — the more files, the more lives. Lines added scale the level length. Survive to the end zone and the git operation completes. Die and nothing happens (or in extreme mode, everything is lost).
+Every command opens the game in your browser. The briefing is your actual commit —
+message, branch, files, and what a failed run will cost you.
+
+![Mission briefing](screenshots/01-briefing.jpg)
+
+Your staged files are cargo, on your back from the moment you land. The extraction pad
+is somewhere across a dark city, and the marker tells you how far.
+
+![The city at night](screenshots/02-city.jpg)
+
+**Recruiters** hold range and talk at you while they shoot. Every hit knocks a crate
+loose, and a dropped file decays on a visible timer — recover it or it's gone.
+
+![Recruiter engagement](screenshots/03-recruiter.jpg)
+
+**Interns** arrive in packs. One is nothing; four at once while a recruiter holds range
+is the pincer the two of them exist to create.
+
+![Intern pack](screenshots/04-intern-pack.jpg)
+
+**The Organizer** glides in around a minute deep and starts putting things in your
+calendar.
+
+![The Organizer](screenshots/05-organizer.jpg)
+
+What it schedules lands on the map: amber meetings you are compelled to attend (and are
+safe from fire inside), red ones that pin you in molasses if you step in.
+
+![Mandatory and avoid meetings](screenshots/06-meetings.jpg)
+
+**The Outlook Invite Storm** rains invites across the block.
+
+![Outlook Invite Storm](screenshots/07-invite-storm.jpg)
+
+Catch one and you get a modal. It accepts itself if you don't answer.
+
+![Meeting invitation](screenshots/08-invite-modal.jpg)
+
+**The AI bro stampede** runs the length of the route, twice a run. Unarmed, oblivious,
+and moving — get out of the lane.
+
+![AI bro stampede](screenshots/09-stampede.jpg)
+
+Reaching the pad isn't the end: you have to hold it while the commit is written, which
+is exactly when the second stampede is scheduled.
+
+![Holding the extraction pad](screenshots/10-extraction.jpg)
+
+Carry it all out and the commit lands, with a footer recording how it was earned.
+
+![Extraction complete](screenshots/11-debrief-win.jpg)
+
+Don't, and nothing is committed — the files you lost are unstaged behind you. In
+`--extreme` mode they are deleted instead.
+
+![Mission failed](screenshots/12-debrief-loss.jpg)
 
 ### Controls
 
-| Key | Action |
+| Input | Action |
 |---|---|
-| Arrow keys / WASD | Move |
-| Z / Space | Shoot |
-| Q | Shoot diagonal left |
-| E | Shoot diagonal right |
-| C | Git revert — clears screen, recovers a lost file |
-| ↑ (near door) | Enter building |
+| WASD | Move |
+| Mouse | Aim |
+| Left mouse | Fire |
+| Space | Dodge |
+| E | Interact — deposit or reclaim at the stash cache |
+| Q | Drop a crate |
+| R | Reload |
+| Esc | Pause |
+
+Gamepad works too — sticks to move and aim, triggers to fire.
 
 ### Pickups
 
 | Pickup | Effect |
 |---|---|
-| SMG / Machine Gun / Shotgun | Weapon upgrade |
-| Ammo | Restock current weapon |
-| HP+ | Heal and recover a lost file |
-| Git Revert | +1 revert charge |
-| Git Stash | 3 seconds invincibility |
+| Machine Gun / Shotgun | Weapon upgrade — the Sidearm never runs out, these do |
+| Ammo | Rounds for the matching weapon only |
+| Medkit | Heal, under the `health` rule |
 
 ## Development
 

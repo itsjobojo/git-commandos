@@ -20,7 +20,10 @@
     "prepare": "node scripts/copy-audio-worklets.mjs",
     "prepack": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "site:dev": "vite --config vite.site.config.ts",
+    "site:build": "vite build --config vite.site.config.ts",
+    "site:images": "node scripts/build-site-images.mjs"
   },
   "keywords": [
     "git",

@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Git Commandos — a game that runs your git commands</title>
+  <meta name="description" content="gcmds is a CLI that wraps git. Run commit, push, or merge and it opens a 3D shooter in your browser — clear it and the real git command runs on your repo. Everything else passes straight through to git, untouched." />
+
+  <meta property="og:title" content="Git Commandos" />
+  <meta property="og:description" content="A CLI that wraps git. commit, push, and merge open a 3D shooter — clear it and the real command runs. Everything else passes straight through to git." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="./public/og.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" type="image/png" href="./public/favicon.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;600;800&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <header class="hero" id="top">
+    <div class="hero__backdrop">
+      <img src="./public/shots/02-city-1280.jpg" srcset="./public/shots/02-city-640.jpg 640w, ./public/shots/02-city-1280.jpg 1280w" sizes="100vw" alt="" aria-hidden="true" width="1280" height="720" />
+    </div>
+    <div class="hero__reticle" aria-hidden="true"></div>
+    <div class="hero__content">
+      <img class="hero__logo reveal reveal--1" src="./public/logo.webp" alt="Git Commandos" width="420" height="280" />
+      <p class="hero__tag reveal reveal--2">An extraction game on top of git.</p>
+      <p class="hero__sub reveal reveal--3">
+        <code>gcmds</code> is a layer on top of git. Type <code>commit</code>,
+        <code>push</code>, or <code>merge</code> and it opens a 3D shooter in
+        your browser — clear the level and it runs the real command. Die and lose work.
+      </p>
+
+      <div class="terminal reveal reveal--4" data-terminal>
+        <div class="terminal__bar">
+          <span class="terminal__dot terminal__dot--r"></span>
+          <span class="terminal__dot terminal__dot--y"></span>
+          <span class="terminal__dot terminal__dot--g"></span>
+          <span class="terminal__title">zsh</span>
+          <button class="terminal__copy" type="button" data-copy="npm install -g git-commandos">
+            <span data-copy-label>COPY</span>
+          </button>
+        </div>
+        <pre class="terminal__body"><code><span class="terminal__prompt">$</span> npm install -g git-commandos
+<span class="terminal__prompt">$</span> gcmds commit -m <span class="terminal__str">"earn it"</span></code></pre>
+      </div>
+
+      <div class="hero__actions reveal reveal--5">
+        <a class="btn btn--primary" href="#commands">See the commands</a>
+        <a class="btn btn--ghost" href="https://github.com/itsjobojo/git-commandos" target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+    </div>
+    <a class="hero__scroll" href="#gallery" aria-label="Scroll down">
+      <span></span>
+    </a>
+  </header>
+
+  <main>
+
+    <section class="section section--wide" id="gallery">
+      <div class="section__frame">
+        <p class="section__eyebrow">01 / THE ENEMIES</p>
+        <h2 class="section__title">Six things try to stop the commit</h2>
+        <p class="section__intro">
+          Recruiters, interns, a boss who controls your calendar, mandatory
+          meetings, an invite storm, and a stampede. Screenshots from real runs.
+        </p>
+
+        <div class="gallery-grid">
+          <article class="gallery-card">
+            <figure>
+              <img
+                src="./public/shots/03-recruiter-1280.jpg"
+                srcset="./public/shots/03-recruiter-640.jpg 640w, ./public/shots/03-recruiter-1280.jpg 1280w"
+                sizes="(min-width: 1080px) 33vw, (min-width: 720px) 50vw, 100vw"
+                alt="Two pink Recruiter enemies holding range and firing, with dialogue bubbles asking if the player is still at their desk."
+                width="1280" height="720" loading="lazy" decoding="async"
+              />
+            </figure>
+            <h3>Recruiters</h3>
+            <p>Hold range and talk at you while they shoot. "Are you still at your desk?" is cover fire.</p>
+          </article>
+
+          <article class="gallery-card">
+            <figure>
+              <img
+                src="./public/shots/04-intern-pack-1280.jpg"
+                srcset="./public/shots/04-intern-pack-640.jpg 640w, ./public/shots/04-intern-pack-1280.jpg 1280w"
+                sizes="(min-width: 1080px) 33vw, (min-width: 720px) 50vw, 100vw"
+                alt="A pack of orange Intern enemies converging on the player, asking where they get access."
+                width="1280" height="720" loading="lazy" decoding="async"
+              />
+            </figure>
+            <h3>Interns</h3>
+            <p>Arrive in packs. One is nothing; four at once while a Recruiter holds range is the pincer they exist to create.</p>
+          </article>
+
+          <article class="gallery-card">
+            <figure>
+              <img
+                src="./public/shots/05-organizer-1280.jpg"
+                srcset="./public/shots/05-organizer-640.jpg 640w, ./public/shots/05-organizer-1280.jpg 1280w"
+                sizes="(min-width: 1080px) 33vw, (min-width: 720px) 50vw, 100vw"
+                alt="The Organizer boss enemy title card reading 'Your calendar is no longer yours.'"
+                width="1280" height="720" loading="lazy" decoding="async"
+              />
+            </figure>
+            <h3>The Organizer</h3>
+            <p>Glides in around a minute deep and starts putting things in your calendar.</p>
+          </article>
+
+          <article class="gallery-card">
+            <figure>
+              <img
+                src="./public/shots/06-meetings-1280.jpg"
+                srcset="./public/shots/06-meetings-640.jpg 640w, ./public/shots/06-meetings-1280.jpg 1280w"
+                sizes="(min-width: 1080px) 33vw, (min-width: 720px) 50vw, 100vw"
+                alt="Two meeting zones on the map: a red 'Lunch and Learn' zone to avoid, and an amber 'Incident Retro' zone that is mandatory and safe from fire."
+                width="1280" height="720" loading="lazy" decoding="async"
+              />
+            </figure>
+            <h3>Meetings</h3>
+            <p>What the Organizer schedules lands on the map — amber ones you're compelled to attend (and are safe inside), red ones that pin you in molasses.</p>
+          </article>
+
+          <article class="gallery-card">
+            <figure>
+              <img
+                src="./public/shots/07-invite-storm-1280.jpg"
+                srcset="./public/shots/07-invite-storm-640.jpg 640w, ./public/shots/07-invite-storm-1280.jpg 1280w"
+                sizes="(min-width: 1080px) 33vw, (min-width: 720px) 50vw, 100vw"
+                alt="Outlook Invite Storm event title card, with a blue invite circling overhead reading 'decline everything.'"
+                width="1280" height="720" loading="lazy" decoding="async"
+              />
+            </figure>
+            <h3>Outlook Invite Storm</h3>
+            <p>Rains invites across the block. Catch one and you get a modal — it accepts itself if you don't answer.</p>
+          </article>
+
+          <article class="gallery-card">
+            <figure>
+              <img
+                src="./public/shots/09-stampede-1280.jpg"
+                srcset="./public/shots/09-stampede-640.jpg 640w, ./public/shots/09-stampede-1280.jpg 1280w"
+                sizes="(min-width: 1080px) 33vw, (min-width: 720px) 50vw, 100vw"
+                alt="A stampede of AI bro enemies charging down a lane, one saying 'I vibe-coded our auth layer.'"
+                width="1280" height="720" loading="lazy" decoding="async"
+              />
+            </figure>
+            <h3>The AI Bro Stampede</h3>
+            <p>Runs the length of the route, twice a run. Unarmed, oblivious, and moving — get out of the lane.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="commands">
+      <div class="section__frame">
+        <p class="section__eyebrow">02 / COMMANDS</p>
+        <h2 class="section__title">Install and run</h2>
+
+        <div class="terminal terminal--wide" data-terminal>
+          <div class="terminal__bar">
+            <span class="terminal__dot terminal__dot--r"></span>
+            <span class="terminal__dot terminal__dot--y"></span>
+            <span class="terminal__dot terminal__dot--g"></span>
+            <span class="terminal__title">install</span>
+            <button class="terminal__copy" type="button" data-copy="npm install -g git-commandos">
+              <span data-copy-label>COPY</span>
+            </button>
+          </div>
+          <pre class="terminal__body"><code><span class="terminal__prompt">$</span> npm install -g git-commandos</code></pre>
+        </div>
+        <p class="manual__note">
+          Needs Node 18.17+ and a real git on your PATH. Ships pre-built — nothing
+          to compile after install.
+        </p>
+
+        <h3 class="manual__subhead">Commands</h3>
+        <div class="table-wrap">
+          <table class="cmd-table">
+            <thead><tr><th>Command</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>gcmds commit -m "message"</code></td><td>Commit staged files — survive to ship them</td></tr>
+              <tr><td><code>gcmds push [remote] [branch]</code></td><td>Push commits to remote</td></tr>
+              <tr><td><code>gcmds merge &lt;branch&gt;</code></td><td>Merge a branch</td></tr>
+              <tr><td><code>gcmds quick-run</code></td><td>Stage fake files and play a test round</td></tr>
+              <tr><td><code>gcmds fake-files [--count=N]</code></td><td>Create and stage N fake <code>.ts</code> files</td></tr>
+              <tr><td><code>gcmds play</code></td><td>Launch sandbox mode — no real git state</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="manual__note">
+          All commands accept <code>--extreme</code>: on loss, files are
+          <strong>deleted from disk</strong> instead of just unstaged.
+        </p>
+        <p class="manual__note">
+          Everything else — <code>status</code>, <code>log</code>,
+          <code>rebase</code>, whatever — goes straight to the real git,
+          unmodified. Alias <code>git=gcmds</code> in your shell if you want it
+          everywhere; git itself is never installed over or replaced, and
+          <code>\git</code> skips the game on any single command.
+        </p>
+
+        <div class="manual__grid">
+          <div>
+            <h3 class="manual__subhead">Controls</h3>
+            <div class="table-wrap">
+              <table class="cmd-table cmd-table--compact">
+                <tbody>
+                  <tr><td><kbd>WASD</kbd></td><td>Move</td></tr>
+                  <tr><td>Mouse</td><td>Aim</td></tr>
+                  <tr><td>Left mouse</td><td>Fire</td></tr>
+                  <tr><td><kbd>Space</kbd></td><td>Dodge</td></tr>
+                  <tr><td><kbd>E</kbd></td><td>Interact — deposit or reclaim at the stash cache</td></tr>
+                  <tr><td><kbd>Q</kbd></td><td>Drop a crate</td></tr>
+                  <tr><td><kbd>R</kbd></td><td>Reload</td></tr>
+                  <tr><td><kbd>Esc</kbd></td><td>Pause</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="manual__note">Gamepad works too — sticks to move and aim, triggers to fire.</p>
+          </div>
+          <div>
+            <h3 class="manual__subhead">Pickups</h3>
+            <div class="table-wrap">
+              <table class="cmd-table cmd-table--compact">
+                <tbody>
+                  <tr><td>Machine Gun / Shotgun</td><td>Weapon upgrade — the Sidearm never runs out, these do</td></tr>
+                  <tr><td>Ammo</td><td>Rounds for the matching weapon only</td></tr>
+                  <tr><td>Medkit</td><td>Heal, under the <code>health</code> rule</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--faq" id="faq">
+      <div class="section__frame">
+        <p class="section__eyebrow">03 / FAQ</p>
+        <h2 class="section__title">Frequently asked, honestly answered</h2>
+        <dl class="faq-list">
+          <div class="faq-item">
+            <dt>Is this a good idea?</dt>
+            <dd>No.</dd>
+          </div>
+          <div class="faq-item">
+            <dt>Is it safe to use on a real project?</dt>
+            <dd>No.</dd>
+          </div>
+          <div class="faq-item">
+            <dt>I lost a bunch of work. What do I do?</dt>
+            <dd>Please fill out <a href="https://github.com/itsjobojo/git-commandos/issues/1" target="_blank" rel="noopener">this form</a>.</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <img src="./public/logo.webp" alt="Git Commandos" width="120" height="80" loading="lazy" />
+    <p>Built for developers who think unstaged files build character.</p>
+    <a class="btn btn--ghost" href="https://github.com/itsjobojo/git-commandos" target="_blank" rel="noopener">github.com/itsjobojo/git-commandos</a>
+  </footer>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
