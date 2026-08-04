@@ -19,6 +19,53 @@ const rules = (over: Partial<Rules> = {}): Rules => ({ ...DEFAULT_RULES, ...over
 const ledger = (over: Partial<Rules> = {}, startCarrying = 0): CargoLedger =>
   new CargoLedger(FILES, { rules: rules(over), startCarrying });
 
+describe('allLost — the run is over', () => {
+  /** Drop everything carried and let it all decay away. */
+  const wipe = (l: CargoLedger): void => {
+    while (l.dropNewest()) {
+      /* keep knocking crates loose */
+    }
+    l.tick(9999);
+  };
+
+  it('is false at the start', () => {
+    expect(ledger().allLost).toBe(false);
+    expect(ledger({}, FILES.length).allLost).toBe(false);
+  });
+
+  it('is false while a crate is still on the map', () => {
+    const l = ledger();
+    expect(l.allLost).toBe(false);
+  });
+
+  it('is false while a dropped crate is still recoverable', () => {
+    const l = ledger({}, FILES.length);
+    l.dropNewest();
+    expect(l.find('src/c.ts')!.state).toBe('dropped');
+    expect(l.allLost).toBe(false);
+  });
+
+  it('is true once every crate has decayed', () => {
+    const l = ledger({}, FILES.length);
+    wipe(l);
+    expect(l.crates.every((c) => c.state === 'lost')).toBe(true);
+    expect(l.allLost).toBe(true);
+  });
+
+  it('is false if even one crate is stashed', () => {
+    const l = ledger({}, FILES.length);
+    l.stash('src/a.ts');
+    wipe(l);
+    expect(l.find('src/a.ts')!.state).toBe('stashed');
+    expect(l.allLost).toBe(false);
+  });
+
+  it('is false for a mission with no files at all', () => {
+    // Nothing was ever at stake, so an empty diff must not insta-fail.
+    expect(new CargoLedger([], { rules: rules(), startCarrying: 0 }).allLost).toBe(false);
+  });
+});
+
 describe('collecting and carrying', () => {
   it('starts every crate on the map unless told otherwise', () => {
     const l = ledger();

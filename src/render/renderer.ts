@@ -29,6 +29,23 @@ export function createRenderer(canvas: HTMLCanvasElement): WebGLRenderer {
   // the game loop, so the number means the whole frame again.
   renderer.info.autoReset = false;
 
+  // Cmd/Ctrl + wheel over the canvas zooms the browser page, not the game.
+  //
+  // It is one slip of a thumb on a trackpad, it sticks — Chrome remembers zoom
+  // per origin, so it survives a reload and every run after it — and what it
+  // looks like from inside the game is that the camera crept in and stayed
+  // there. It also quietly halves the resolution: `setPixelRatio` clamps at 2,
+  // so past 100% zoom the backing store stops keeping up and the whole scene
+  // goes soft. Nothing here is scrollable and nothing reads the wheel, so there
+  // is no gesture to preserve.
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    },
+    { passive: false },
+  );
+
   return renderer;
 }
 

@@ -1,5 +1,7 @@
 import { ConeGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
+import { SENSE_PROFILES } from '../../systems/awareness';
+import { INTERN_LINES } from './intern-lines';
 import { SpeechBubble } from '../../render/bubble';
 import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
 import { CAST } from '../../render/cast';
@@ -11,16 +13,6 @@ const LUNGE_SPEED = 12.5;
 const LUNGE_RANGE = 7;
 const TALK_INTERVAL: [number, number] = [3.5, 8];
 
-const LINES = [
-  'can we pair on this?',
-  'sorry — quick question',
-  'is there a doc for this?',
-  'I just want to shadow you',
-  'do you have five minutes?',
-  'where do I get access?',
-  'should I be in this meeting?',
-  'I ran npm install and it broke',
-];
 
 /**
  * The Intern — the one that does run at you.
@@ -44,7 +36,7 @@ export class Intern extends Enemy {
   private readonly rig: Humanoid;
 
   constructor(rng: { range: (a: number, b: number) => number }) {
-    super();
+    super(SENSE_PROFILES.intern);
     // Two draws, in this order. The map and every line of dialogue come off the
     // same seeded stream, so adding, dropping or reordering a draw here changes
     // the whole mission for a given commit message.
@@ -76,13 +68,13 @@ export class Intern extends Enemy {
     super.tick(dt);
     this.bubble.update(dt);
 
-    const distance = Math.hypot(ctx.playerX - this.x, ctx.playerZ - this.z);
+    const distance = Math.hypot(ctx.bodyX - this.x, ctx.bodyZ - this.z);
     const speed = distance < LUNGE_RANGE ? LUNGE_SPEED : SPEED;
-    this.moveToward(dt, ctx.grid, ctx.playerX, ctx.playerZ, speed);
+    this.moveToward(dt, ctx.grid, ctx.bodyX, ctx.bodyZ, speed);
 
     this.talkTimer -= dt;
     if (this.talkTimer <= 0) {
-      this.bubble.say(ctx.rng.pick(LINES), 2.6);
+      this.bubble.say(ctx.rng.pick(INTERN_LINES), 2.6);
       this.talkTimer = ctx.rng.range(TALK_INTERVAL[0], TALK_INTERVAL[1]);
     }
 

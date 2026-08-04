@@ -9,8 +9,21 @@ import { DEFAULT_RULES, type GitContext, type Rules, type StagedFile } from '../
  * is not a special case threaded through the game, it's just a Mission built
  * from fake data.
  */
+/**
+ * Hits you can take before the run is lost, under the `health` rule.
+ *
+ * Lives here rather than in `game.ts` so the briefing can quote the real number
+ * without importing the thing that imports it. Four was tuned when `health` was
+ * a niche opt-in and nothing else could kill you; as the default it has to
+ * absorb a recruiter burst plus the crate you drop with every hit.
+ */
+export const MAX_HP = 7;
+
 export interface Mission {
-  /** Same commit message → same map, same spawns, same bro dialogue. */
+  /**
+   * Drives the map, the spawns and the dialogue. Rolled fresh on every deploy,
+   * so no two runs are the same place — see `freshSeed`.
+   */
   seed: string;
   sandbox: boolean;
   command: string;
@@ -38,10 +51,34 @@ const SANDBOX_FILES: StagedFile[] = [
   { name: 'README.md', added: 12, removed: 4 },
 ];
 
+/**
+ * The one place entropy enters the game.
+ *
+ * Everything downstream is seeded and reproducible — the map, the spawns, the
+ * loot rolls, the dialogue all derive from this string, so a single run is
+ * internally consistent and can be replayed exactly given the seed. What
+ * changed is that the seed is no longer a pure function of the commit.
+ *
+ * It used to be `branch:commitMessage`, which meant one commit had one world
+ * forever: lose a run, re-stage, run it again, and you were handed the same map
+ * you had just failed. Deploying twice should not be the same journey twice.
+ * The commit still names the seed, so a world is still recognisably that
+ * commit's — it is just a new one each time you deploy.
+ *
+ * `Math.random` is deliberate here and nowhere else. The rule against it holds
+ * for gameplay code, which must take an `Rng` so a run stays reproducible; this
+ * runs once, before the run exists, to decide which run it is going to be.
+ */
+function freshSeed(label: string): string {
+  const when = Date.now().toString(36);
+  const noise = Math.floor(Math.random() * 0xffffffff).toString(36);
+  return `${label}:${when}:${noise}`;
+}
+
 export function buildMission(ctx: GitContext | null): Mission {
   if (!ctx) {
     return {
-      seed: 'sandbox',
+      seed: freshSeed('sandbox'),
       sandbox: true,
       command: 'play',
       difficulty: 'basic',
@@ -53,12 +90,14 @@ export function buildMission(ctx: GitContext | null): Mission {
       files: SANDBOX_FILES,
       linesAdded: SANDBOX_FILES.reduce((n, f) => n + f.added, 0),
       holdSeconds: 6,
-      arenaCells: 44,
+      // Same formula a real commit gets, rather than a hardcoded 44 — otherwise
+      // the sandbox is not a sample of the thing it exists to preview.
+      arenaCells: Math.round(clamp(34 + SANDBOX_FILES.length * 2.8, 44, 72)),
     };
   }
 
   return {
-    seed: `${ctx.branch}:${ctx.commitMessage}`,
+    seed: freshSeed(`${ctx.branch}:${ctx.commitMessage}`),
     sandbox: false,
     command: ctx.command,
     difficulty: ctx.difficulty,
@@ -72,7 +111,15 @@ export function buildMission(ctx: GitContext | null): Mission {
     // A one-line fix is a smash-and-grab; a 400-line refactor is a long, ugly
     // haul. This is the mechanic that argues for committing more often.
     holdSeconds: clamp(4 + ctx.linesAdded / 55, 4, 14),
-    arenaCells: Math.round(clamp(36 + ctx.linesAdded / 12, 36, 72)),
+    // Two separate knobs. Lines added set how grand the map is; the number of
+    // files sets how long the route through it is. The floor is what keeps
+    // those from fighting: a fifteen-file commit carves a route roughly three
+    // times the length a one-file commit does, and it needs somewhere to put
+    // it — on a small arena the branches have nowhere to go and the walk folds
+    // back on itself instead of exploring.
+    arenaCells: Math.round(
+      clamp(Math.max(36 + ctx.linesAdded / 12, 34 + ctx.files.length * 2.8), 44, 72),
+    ),
   };
 }
 

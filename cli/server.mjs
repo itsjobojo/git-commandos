@@ -1,11 +1,11 @@
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
-import { join, extname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, extname, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const DIST_DIR = join(__dirname, '..', 'dist');
+const DIST_DIR = normalize(join(__dirname, '..', 'dist'));
 
 const MIME = {
   '.html': 'text/html',
@@ -28,11 +28,28 @@ const MIME = {
  */
 export function launchGame(config) {
   return new Promise(async (resolve, reject) => {
+    // A published install always ships a built dist/. Running from a clone
+    // does not, and "404 Not found" in a browser tab is a poor way to learn it.
+    if (!existsSync(join(DIST_DIR, 'index.html'))) {
+      reject(new Error(
+        'The game is not built — dist/index.html is missing.\n' +
+        '  Run `pnpm build` (from a clone) or reinstall with `npm install -g git-commandos`.',
+      ));
+      return;
+    }
+
     const server = createServer((req, res) => {
       let filePath = req.url === '/' ? '/index.html' : req.url;
       // Strip query strings
       filePath = filePath.split('?')[0];
-      const fullPath = join(DIST_DIR, filePath);
+      const fullPath = normalize(join(DIST_DIR, decodeURIComponent(filePath)));
+      // The server is short-lived and local, but it is still a server pointed
+      // at someone's machine: nothing outside dist/ is ever ours to serve.
+      if (fullPath !== DIST_DIR && !fullPath.startsWith(DIST_DIR + sep)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
       try {
         const data = readFileSync(fullPath);
         const ext = extname(fullPath);
@@ -85,8 +102,10 @@ export function launchGame(config) {
       });
     });
 
-    // Find an available port
-    server.listen(0, async () => {
+    // Any free port, loopback only — a WebSocket message from this server
+    // decides what happens to the user's staged files, so it is not something
+    // to expose to the network.
+    server.listen(0, '127.0.0.1', async () => {
       const port = server.address().port;
       const url = `http://localhost:${port}`;
       console.log(`\n  🎮 Game server running at ${url}\n`);

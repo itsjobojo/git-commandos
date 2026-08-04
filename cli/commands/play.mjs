@@ -3,6 +3,9 @@ import { launchGame } from '../server.mjs';
 export const description = 'Launch the game in sandbox/dev mode';
 export const usage = 'gcmds play [--extreme]';
 
+// Sandbox mode invents its own files — it never reads or writes git state.
+export const requiresRepo = false;
+
 const SANDBOX_FILES = ['src/auth.ts', 'src/api.ts', 'src/router.ts', 'src/utils.ts', 'src/config.ts'];
 
 export async function run(args, flags) {

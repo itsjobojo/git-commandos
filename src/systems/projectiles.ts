@@ -22,13 +22,23 @@ export const enum Faction {
 const CAPACITY = 768;
 /** Bullets are stepped in substeps so fast ones can't tunnel through walls. */
 const MAX_STEP_DISTANCE = 0.5;
+/**
+ * How the player's tracers are drawn relative to their collision size. Enemy
+ * fire keeps its full bulk — incoming rounds are supposed to be easy to read.
+ */
+const PLAYER_TRACER = { length: 0.8, thickness: 0.45 } as const;
 
 /**
  * Every projectile in the game, in flat arrays behind one InstancedMesh.
  *
- * A bullet hell needs hundreds of these alive at once — the invite swarm alone
- * fires dense fans — so they are pooled rather than allocated, and drawn in a
- * single call rather than one per bullet.
+ * A firefight needs hundreds of these alive at once, so they are pooled rather
+ * than allocated, and drawn in a single call rather than one per bullet.
+ *
+ * The pool was sized for the Invite Storm's fans and spirals, which it no
+ * longer has — it throws now. Nothing currently fires an `invite` projectile at
+ * all, so that branch and the homing field are unused capability rather than
+ * live code; both are cheap to keep and the next enemy that wants either has
+ * them ready.
  */
 export class ProjectilePool {
   private readonly x = new Float32Array(CAPACITY);
@@ -42,7 +52,7 @@ export class ProjectilePool {
   private readonly spin = new Float32Array(CAPACITY);
   private readonly alive = new Uint8Array(CAPACITY);
 
-  /** Homing: 0 = straight. Used by swarm invites. */
+  /** Homing: 0 = straight. Unused since the Invite Storm stopped firing. */
   private readonly homing = new Float32Array(CAPACITY);
   /** 1 = draw as an invite sprite rather than a tracer. */
   private readonly invite = new Uint8Array(CAPACITY);
@@ -243,7 +253,21 @@ export class ProjectilePool {
       const enemy = this.faction[i] === Faction.Enemy;
       this.dummy.position.set(this.x[i], 0.85, this.z[i]);
       this.dummy.rotation.set(0, -Math.atan2(this.vz[i], this.vx[i]), enemy ? this.spin[i] : 0);
-      this.dummy.scale.setScalar(this.radius[i] / 0.18);
+      const scale = this.radius[i] / 0.18;
+      if (enemy) {
+        this.dummy.scale.setScalar(scale);
+      } else {
+        // Your own rounds are drawn thinner than they collide. At seven pellets
+        // a shotgun blast was a wall of boxes that hid whatever you were aiming
+        // at — and what you need to see in that moment is the enemy, not the
+        // ammunition. Deliberately visual only: `radius` is the hitbox and
+        // shrinking that would quietly make every weapon worse.
+        this.dummy.scale.set(
+          scale * PLAYER_TRACER.length,
+          scale * PLAYER_TRACER.thickness,
+          scale * PLAYER_TRACER.thickness,
+        );
+      }
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(n, this.dummy.matrix);
       this.colour.setHex(enemy ? PALETTE.invite : PALETTE.tracer);

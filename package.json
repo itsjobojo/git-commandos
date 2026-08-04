@@ -2,22 +2,24 @@
   "name": "git-commandos",
   "version": "1.0.0",
   "description": "Git, but you have to earn it. A 2D action game CLI that gates real git operations.",
-  "main": "index.js",
   "bin": {
-    "gcmds": "./cli/index.mjs"
+    "gcmds": "./cli/index.mjs",
+    "git-commandos": "./cli/index.mjs"
   },
   "files": [
     "cli/",
-    "dist/"
+    "!cli/**/*.test.mjs",
+    "dist/",
+    "README.md"
   ],
   "scripts": {
     "gcmds": "node cli/index.mjs",
     "dev": "vite",
     "tsc": "tsc --noEmit && vite build",
-    "build": "vite build",
-    "prepublishOnly": "vite build",
+    "build": "node scripts/copy-audio-worklets.mjs && vite build",
+    "prepare": "node scripts/copy-audio-worklets.mjs",
+    "prepack": "npm run build",
     "test": "vitest run",
-    "postinstall": "node -e \"const fs=require('fs');fs.mkdirSync('public/audio',{recursive:true});['chiptune3.worklet.js','libopenmpt.worklet.js'].forEach(f=>fs.copyFileSync('node_modules/chiptune3/'+f,'public/audio/'+f))\"",
     "test:watch": "vitest"
   },
   "keywords": [],
@@ -26,14 +28,17 @@
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {
     "@types/three": "^0.185.3",
+    "chiptune3": "^0.8.7",
+    "three": "^0.185.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.1",
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "chiptune3": "^0.8.7",
     "open": "^10.1.0",
-    "three": "^0.185.1",
     "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.17"
   }
 }

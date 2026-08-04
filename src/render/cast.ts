@@ -27,7 +27,7 @@ import { strideCadence, type HumanoidSpec } from './humanoid';
  *    rendered as a torso hovering over its own shadow.
  */
 
-export type CastId = 'player' | 'intern' | 'recruiter' | 'ai-bro' | 'organizer' | 'invite-swarm';
+export type CastId = 'player' | 'intern' | 'recruiter' | 'ai-bro' | 'organizer' | 'invite-storm';
 
 const IDLE_CADENCE = 1.4;
 /**
@@ -310,8 +310,8 @@ export const CAST: Readonly<Record<CastId, HumanoidSpec>> = {
    * Upper-arm half-width 0.904 against a 1.5 radius — the roomiest in the cast,
    * because the collision circle was sized for the old floating icon.
    */
-  'invite-swarm': {
-    key: 'invite-swarm',
+  'invite-storm': {
+    key: 'invite-storm',
     height: SWARM_H,
     bulk: 1.35,
     colours: {

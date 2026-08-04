@@ -1,5 +1,16 @@
-import { Mesh, MeshStandardMaterial, PlaneGeometry } from 'three';
+import { Mesh, MeshStandardMaterial, PlaneGeometry, Vector4 } from 'three';
 import { PALETTE, color } from './palette';
+import type { Park } from '../world/route';
+
+/**
+ * How many parks the ground can show at once.
+ *
+ * A fixed-size uniform array rather than a texture: parks are counted in single
+ * figures, and a lookup this small costs less than a sample. Any beyond this
+ * simply keep their trees and lose their grass, which is a cosmetic loss rather
+ * than a broken map.
+ */
+const MAX_PARKS = 8;
 
 /**
  * The ground: asphalt with concrete slabs, kerb joints and standing water.
@@ -17,7 +28,7 @@ import { PALETTE, color } from './palette';
  * player visibly floats. Patching keeps all of that and leaves only the
  * pattern to write.
  */
-export function createFloor(width: number, depth: number): Mesh {
+export function createFloor(width: number, depth: number, parks: Park[] = []): Mesh {
   const geometry = new PlaneGeometry(width, depth, 1, 1);
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(width / 2, 0, depth / 2);
@@ -37,6 +48,14 @@ export function createFloor(width: number, depth: number): Mesh {
     shader.uniforms.uBlock = { value: 8 };
     shader.uniforms.uFadeStart = { value: 34 };
     shader.uniforms.uFadeEnd = { value: 96 };
+    shader.uniforms.uGrass = { value: color(PALETTE.grass) };
+    shader.uniforms.uGrassLight = { value: color(PALETTE.grassLight) };
+    // xz = centre, w = radius. Unused slots get a zero radius.
+    shader.uniforms.uParks = {
+      value: Array.from({ length: MAX_PARKS }, (_, i) =>
+        i < parks.length ? new Vector4(parks[i].x, parks[i].z, 0, parks[i].radius) : new Vector4(),
+      ),
+    };
 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vFloorWorld;')
@@ -57,6 +76,9 @@ export function createFloor(width: number, depth: number): Mesh {
         uniform float uBlock;
         uniform float uFadeStart;
         uniform float uFadeEnd;
+        uniform vec3 uGrass;
+        uniform vec3 uGrassLight;
+        uniform vec4 uParks[${MAX_PARKS}];
 
         // Wetness is written in <color_fragment> and read back in
         // <roughnessmap_fragment>, which runs later in the same main(). A
@@ -97,6 +119,23 @@ export function createFloor(width: number, depth: number): Mesh {
           vec2 d = fwidth(p) * sharpness;
           vec2 g = abs(fract(p - 0.5) - 0.5) / max(d, vec2(1e-5));
           return 1.0 - min(min(g.x, g.y), 1.0);
+        }
+
+        // How much of this fragment is park, 0 at the kerb and 1 inside.
+        //
+        // The edge is worried with the same noise the grass is textured with,
+        // so a park ends in a ragged verge rather than on a drawn circle. A
+        // clean arc would read as a decal on the tarmac.
+        float floorPark(vec2 xz) {
+          float grass = 0.0;
+          for (int i = 0; i < ${MAX_PARKS}; i++) {
+            float radius = uParks[i].w;
+            if (radius <= 0.0) continue;
+            float d = distance(xz, uParks[i].xy);
+            float ragged = radius * (0.86 + floorFbm(xz * 0.22) * 0.22);
+            grass = max(grass, 1.0 - smoothstep(ragged - 2.5, ragged + 1.5, d));
+          }
+          return grass;
         }
         `,
       )
@@ -139,6 +178,25 @@ export function createFloor(width: number, depth: number): Mesh {
           // A faint cool sheen on the water, so it still reads on a surface
           // this dark even when the sun is not hitting the specular lobe.
           diffuseColor.rgb += uPaint * 0.06 * water * fade;
+
+          // Parks, over the top of the street rather than instead of it: the
+          // slab joints and puddles are still under there, just buried, which
+          // is what keeps a park reading as a square in a city instead of a
+          // hole cut in the map.
+          float park = floorPark(xz);
+          if (park > 0.0) {
+            // Two pitches again — clumps of growth, and blades within them.
+            float turf = floorFbm(floorSkew(xz) * 0.9);
+            float blades = floorNoise(floorSkew(xz) * 11.0);
+            vec3 grass = mix(uGrass, uGrassLight, turf * 0.85);
+            grass *= 0.86 + blades * 0.3 * fade;
+            // Worn tracks where the ground gets walked over.
+            grass *= mix(1.0, 0.72, smoothstep(0.55, 0.8, floorFbm(xz * 0.4 + 5.1)));
+
+            diffuseColor.rgb = mix(diffuseColor.rgb, grass, park);
+            // Grass does not hold standing water the way tarmac does.
+            gcWet *= 1.0 - park * 0.9;
+          }
         }
         `,
       )
@@ -148,7 +206,7 @@ export function createFloor(width: number, depth: number): Mesh {
       );
   };
   // Without this, three reuses a cached program compiled before the patch.
-  material.customProgramCacheKey = () => 'gc-floor-asphalt-v1';
+  material.customProgramCacheKey = () => 'gc-floor-asphalt-v2-park';
 
   const mesh = new Mesh(geometry, material);
   mesh.receiveShadow = true;

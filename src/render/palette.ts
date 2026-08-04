@@ -21,6 +21,29 @@ export const PALETTE = {
   wallEdge: 0x4a6374,
   cover: 0x2e3d4a,
 
+  /**
+   * Parks. Deliberately dark and desaturated: the player is git green
+   * (`player`, several stops brighter), and a park has to read as a change of
+   * ground without ever competing with the thing you are steering.
+   */
+  grass: 0x16281b,
+  grassLight: 0x223d27,
+  bark: 0x241d19,
+  foliage: 0x1e3a24,
+  foliageLight: 0x2c5233,
+  /** Weathered slats. A shade up from bark so a bench reads as a thing, not a stump. */
+  bench: 0x3b3028,
+  bush: 0x1b3320,
+  /**
+   * Street clutter. Deliberately drab and nowhere near `crate` — that cyan
+   * means "your files are in this", and a pile of scenery wearing it would have
+   * you running across the map for a packing box.
+   */
+  boxProp: 0x39322a,
+  lampPost: 0x1e242b,
+  /** Sodium. Warm, so a lit street reads apart from the cold monitor glow. */
+  lampLight: 0xffc978,
+
   player: 0x4ade80,
   playerDim: 0x166534,
 

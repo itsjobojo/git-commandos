@@ -1,0 +1,23 @@
+// quick-run: utils.ts
+export const line1 = 1;
+export const line2 = 2;
+export const line3 = 3;
+export const line4 = 4;
+export const line5 = 5;
+export const line6 = 6;
+export const line7 = 7;
+export const line8 = 8;
+export const line9 = 9;
+export const line10 = 10;
+export const line11 = 11;
+export const line12 = 12;
+export const line13 = 13;
+export const line14 = 14;
+export const line15 = 15;
+export const line16 = 16;
+export const line17 = 17;
+export const line18 = 18;
+export const line19 = 19;
+export const line20 = 20;
+export const line21 = 21;
+export const line22 = 22;

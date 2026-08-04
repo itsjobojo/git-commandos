@@ -1,7 +1,7 @@
 import { Fog, Group, Scene, Vector3, WebGLRenderer } from 'three';
 import { Loop } from '../core/loop';
 import { Input } from '../core/input';
-import { Rng } from '../core/rng';
+import { Rng, hashString } from '../core/rng';
 import { Time, hitstop } from '../core/time';
 import { createRenderer, fitToWindow } from '../render/renderer';
 import { PostChain } from '../render/post';
@@ -9,6 +9,10 @@ import { CameraRig } from '../render/camera';
 import { Lighting } from '../render/lighting';
 import { createFloor } from '../render/floor';
 import { createReticle } from '../render/reticle';
+import { AimIndicator } from '../render/aim-indicator';
+import { VisionCones } from '../render/vision-cones';
+import { AlertMarks } from '../render/alert-marks';
+import { FLASH, HitFlashes } from '../render/hit-flash';
 import { Beacon } from '../render/pad';
 import { PALETTE } from '../render/palette';
 import { buildRoute, type BuiltMap } from '../world/arena';
@@ -17,17 +21,18 @@ import { Extraction } from '../systems/extraction';
 import { CargoLedger } from '../systems/cargo-ledger';
 import { CarrySystem } from '../systems/carry';
 import { CombatSystem } from '../systems/combat';
+import { NoiseBus } from '../systems/noise';
 import { Faction } from '../systems/projectiles';
 import { MEETING_SLOW, SHELTER_GRACE, MeetingSystem } from '../systems/meetings';
 import { BLAST_RADIUS, BombSystem } from '../systems/bombs';
 import { PickupSystem, type PickupOffer } from '../systems/pickups';
 import { AudioSystem, eventCue, shotCue } from '../systems/audio';
-import { Loadout, WEAPONS } from '../systems/weapons';
+import { Loadout, WEAPONS, WEAPON_ORDER } from '../systems/weapons';
 import { showInvite } from '../ui/invite-modal';
 import { Director } from './director';
 import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
-import { InviteSwarm } from '../entities/enemies/invite-swarm';
+import { InviteStorm } from '../entities/enemies/invite-storm';
 import { Recruiter } from '../entities/enemies/recruiter';
 import { Intern } from '../entities/enemies/intern';
 import type { Enemy, EnemyContext } from '../entities/enemies/enemy';
@@ -38,14 +43,22 @@ import { DamageOverlay } from '../ui/damage';
 import { showBriefing } from '../ui/briefing';
 import { showAborted, showDebrief, type DebriefReason } from '../ui/debrief';
 import { showPause } from '../ui/pause';
-import { basename, type Mission } from './mission';
+import { MAX_HP, basename, type Mission } from './mission';
 import type { GitContext, Outcome } from '../net/protocol';
 
 type State = 'briefing' | 'playing' | 'paused' | 'debrief';
 
 const PAD_RADIUS = 3.2;
-/** Health-rule only: how many hits before the run is lost outright. */
-const MAX_HP = 4;
+/** Enemy fire is quieter than yours — they are not trying to stay hidden. */
+const ENEMY_SHOT_NOISE = 16;
+/** A detonation is heard across most of the map, and pulls attention off you. */
+const BOMB_NOISE = 30;
+/** Roughly head height across the cast, so the ?/! clears the tallest rig. */
+const MARK_HEIGHT = 2.1;
+/** Chest height — where a bloom reads as "this body was hit". */
+const BODY_HEIGHT = 1;
+/** Where a round visually strikes, a little below centre mass. */
+const IMPACT_HEIGHT = 0.85;
 const HIT_INVULN = 1.1;
 
 /**
@@ -73,6 +86,10 @@ export class Game {
   private readonly map: BuiltMap;
   private readonly player: Player;
   private readonly reticle: Group;
+  private readonly aimIndicator: AimIndicator;
+  private readonly visionCones: VisionCones;
+  private readonly alertMarks: AlertMarks;
+  private readonly hitFlashes = new HitFlashes();
   private readonly beacon: Beacon;
   private readonly extraction: Extraction;
   private readonly ledger: CargoLedger;
@@ -82,6 +99,7 @@ export class Game {
   private readonly bombs: BombSystem;
   private readonly pickups: PickupSystem;
   private readonly loadout = new Loadout();
+  private readonly noise = new NoiseBus();
   private readonly director: Director;
   private readonly audio: AudioSystem;
   /** Dismisses an open invite, if one is up. */
@@ -89,6 +107,17 @@ export class Game {
 
   private state: State = 'briefing';
   private hp = MAX_HP;
+  /**
+   * Run tally, reported to the CLI so a commit can carry how it was earned.
+   *
+   * Counters only — nothing here is ever read back by gameplay, and nothing
+   * here decides what happens to a file. Keep it that way: the moment a stat
+   * feeds a rule, `CargoLedger` stops being the single answer to "which files
+   * survived".
+   */
+  private readonly tally = { seconds: 0, hitsTaken: 0, kills: 0, recovered: 0 };
+  /** 0..1, kicked on each trigger pull, decayed in render. */
+  private shotFlash = 0;
   private readonly aim = new Vector3();
   private readonly renderPos = new Vector3();
   private readonly disposeResize: () => void;
@@ -125,9 +154,18 @@ export class Game {
     this.scene.fog = new Fog(PALETTE.fog, 38, 104);
     this.lighting = new Lighting(this.scene);
 
-    this.map = buildRoute(this.rng, mission.arenaCells, mission.arenaCells);
+    // Its own stream, forked off the mission seed. The same commit still gets
+    // the same map, but the generator draws a seed-dependent number of times —
+    // it retries a leg that would have merged into the route beside it — so
+    // sharing the mission stream would make every tweak to level generation
+    // silently re-roll enemy pacing and loot as well.
+    this.map = buildRoute(new Rng(hashString(mission.seed) ^ 0x3a17), {
+      cols: mission.arenaCells,
+      rows: mission.arenaCells,
+      files: mission.files.length,
+    });
     this.scene.add(this.map.group);
-    this.scene.add(createFloor(this.map.grid.width, this.map.grid.depth));
+    this.scene.add(createFloor(this.map.grid.width, this.map.grid.depth, this.map.parks));
 
     this.player = new Player(this.map.grid);
     this.player.setPosition(this.map.spawn.x, this.map.spawn.z);
@@ -166,9 +204,10 @@ export class Game {
           this.hud.flash(`DROPPED ${basename(record.name)}`, 'warn');
           this.audio.play('cargo-dropped');
         },
-        onPickup: (record) => {
+        onPickup: (record, recovered) => {
           this.hud.flash(`SECURED ${basename(record.name)}`, 'good');
           this.audio.play('cargo-secured');
+          if (recovered) this.tally.recovered += 1;
         },
         onStash: (record) => {
           this.hud.flash(`STASHED ${basename(record.name)}`, 'info');
@@ -177,10 +216,30 @@ export class Game {
       },
     );
 
-    this.combat = new CombatSystem(this.scene, this.map.grid, this.loadout, {
+    // A private stream for scatter. Seeded, so a replay of the same commit
+    // fires identically — but forked off the mission seed rather than shared
+    // with it, so firing can never perturb map generation or spawn pacing.
+    const combatRng = new Rng(hashString(mission.seed) ^ 0x5ee1);
+    this.combat = new CombatSystem(this.scene, this.map.grid, this.loadout, combatRng, this.noise, {
       onEnemyKilled: (enemy) => this.onEnemyKilled(enemy),
-      onPlayerShot: (weapon, x, z) => this.audio.play(shotCue(weapon), x, z),
-      onEnemyHit: (x, z) => this.audio.play('enemy-hit', x, z),
+      onPlayerShot: (weapon, x, z) => {
+        this.audio.play(shotCue(weapon), x, z);
+        this.shotFlash = 1;
+      },
+      onEnemyHit: (enemy, x, z) => {
+        this.audio.play('enemy-hit', x, z);
+        // Two beats: a small spark where the round struck, and a bloom over
+        // the body so you can tell *which* of a pack you actually hit.
+        this.hitFlashes.spawn(x, IMPACT_HEIGHT, z, 1, FLASH.spark, 0.14);
+        this.hitFlashes.spawn(
+          enemy.x,
+          BODY_HEIGHT,
+          enemy.z,
+          2.1 + enemy.radius * 2,
+          FLASH.hit,
+          0.22,
+        );
+      },
       onPlayerHit: (sourceX, sourceZ) => {
         this.takeHit(sourceX, sourceZ);
         return true;
@@ -216,6 +275,13 @@ export class Game {
 
     this.reticle = createReticle();
     this.scene.add(this.reticle);
+    this.aimIndicator = new AimIndicator();
+    this.scene.add(this.aimIndicator.group);
+    this.visionCones = new VisionCones();
+    this.scene.add(this.visionCones.group);
+    this.scene.add(this.hitFlashes.group);
+    this.alertMarks = new AlertMarks();
+    this.scene.add(this.alertMarks.group);
 
     this.input = new Input(canvas);
     this.debug = new DebugOverlay(uiRoot);
@@ -282,6 +348,10 @@ export class Game {
     this.player.externalSlow = inAvoid ? MEETING_SLOW : 1;
     if (inShelter) this.player.shelterTimer = Math.max(this.player.shelterTimer, 0.2);
 
+    // Simulated time, so hitstop and slow-motion don't inflate the clock and a
+    // paused run doesn't tick at all.
+    this.tally.seconds += dt;
+
     this.player.savePrevious();
     this.player.intent = intent;
     this.player.aimX = this.aim.x;
@@ -294,6 +364,15 @@ export class Game {
 
     // You can still work inside a shelter — it's the avoid blob that pins you.
     if (!inAvoid) this.carry.update(dt, this.player, intent);
+
+    // Checked right after the carry system, because that is the only thing that
+    // can move a crate into `lost`. Once everything has decayed there is
+    // nothing left to extract, so the run is already over — walking the rest of
+    // the route would end in a "win" that commits nothing.
+    if (this.ledger.allLost) {
+      this.finish('loss', 'wiped');
+      return;
+    }
 
     this.combat.update(dt, this.player, this.enemyContext(), intent.fire, this.scene);
     this.bombs.update(dt, Time.real);
@@ -318,18 +397,37 @@ export class Game {
     this.input.consumeEdges();
   };
 
+  /**
+   * How hard the player is to miss, 0..1.
+   *
+   * REBUILD.md asked for this from the start — "more carried = enemies aggro
+   * from further away" — and it went unbuilt for the whole rebuild. It is what
+   * stops "carry everything" being the default rather than a decision.
+   */
+  private conspicuous(): number {
+    const total = this.mission.files.length;
+    return total === 0 ? 0 : this.ledger.carriedCount / total;
+  }
+
   private enemyContext(): EnemyContext {
     return {
-      playerX: this.player.x,
-      playerZ: this.player.z,
+      bodyX: this.player.x,
+      bodyZ: this.player.z,
       playerCarrying: this.ledger.carriedCount,
+      conspicuous: this.conspicuous(),
       grid: this.map.grid,
       rng: this.rng,
       time: Time.real,
       extracting: this.extraction.progress > 0,
+      padX: this.map.extraction.x,
+      padZ: this.map.extraction.z,
+      noise: (x, z, radius) => this.noise.emit(x, z, radius),
       fire: (opts) => {
         this.combat.projectiles.spawn({ ...opts, faction: Faction.Enemy });
         this.audio.play('shot-enemy', opts.x, opts.z);
+        // Enemy fire is a noise too, or the player learns that only their own
+        // gun gives them away.
+        this.noise.emit(opts.x, opts.z, ENEMY_SHOT_NOISE);
       },
       hitPlayer: (sourceX, sourceZ) => {
         if (this.player.invulnerable) return false;
@@ -346,6 +444,17 @@ export class Game {
 
   private onEnemyKilled(enemy: Enemy): void {
     this.audio.play('enemy-killed', enemy.x, enemy.z);
+    this.tally.kills += 1;
+    // Bigger, slower and a different colour from a hit, so "it died" and "it
+    // took one" are never the same read.
+    this.hitFlashes.spawn(
+      enemy.x,
+      BODY_HEIGHT,
+      enemy.z,
+      3.4 + enemy.radius * 2,
+      FLASH.kill,
+      0.38,
+    );
     this.rollDrop(enemy);
 
     // Killing one bro makes the rest speed up. "He's just early."
@@ -355,7 +464,7 @@ export class Game {
       }
       return;
     }
-    if (enemy instanceof InviteSwarm) this.hud.flash('INVITE SERIES CANCELLED', 'good');
+    if (enemy instanceof InviteStorm) this.hud.flash('INVITE SERIES CANCELLED', 'good');
     if (enemy instanceof MeetingOrganizer) this.hud.flash('NO FURTHER MEETINGS SCHEDULED', 'good');
   }
 
@@ -391,23 +500,44 @@ export class Game {
    * sits later, nearer the beacon, where the fights get close.
    */
   private placeWeapons(): void {
-    const route = this.map.waypoints;
+    // Chokepoints, not the trunk at large: a weapon placed at a fixed fraction
+    // along the route can land inside a stretch an alternate skips, and the
+    // player who took the other way never sees it. The two ways round are meant
+    // to be equivalent, so what is on them has to be too.
+    const route = this.map.chokepoints.length >= 3 ? this.map.chokepoints : this.map.waypoints;
     if (route.length < 3) return;
     const early = route[Math.max(1, Math.floor(route.length * 0.3))];
     const late = route[Math.min(route.length - 2, Math.floor(route.length * 0.7))];
-    this.pickups.place({ kind: 'weapon', id: 'smg', rounds: 0 }, early, true);
-    this.pickups.place({ kind: 'weapon', id: 'shotgun', rounds: 0 }, late, true);
+    this.pickups.place({ kind: 'weapon', id: 'smg' }, early, true);
+    this.pickups.place({ kind: 'weapon', id: 'shotgun' }, late, true);
   }
 
   /**
    * @returns false to leave the pickup on the ground.
    *
-   * Ammo is only collectible if you're actually holding that weapon. Picking
-   * up shotgun shells with no shotgun made no sense — you can see them, you
-   * just can't do anything with them yet, which is its own small incentive to
-   * go and find the gun.
+   * Ammo no longer requires already holding the gun. Refusing it meant walking
+   * past shells you could see and could not use, which reads as a bug rather
+   * than as an incentive — and `Loadout.addAmmo` already does the sensible
+   * thing, handing you that weapon with a partial load. The cost is that
+   * collecting ammo for something else swaps what you're holding, since the
+   * loadout carries exactly one weapon.
    */
   private onPickup(offer: PickupOffer, firstTouch: boolean): boolean {
+    if (offer.kind === 'health') {
+      // Nothing to give under a rule with no health to give.
+      if (this.mission.rules.death !== 'health' || this.hp >= MAX_HP) {
+        if (firstTouch) {
+          this.hud.flash(this.hp >= MAX_HP ? 'HEALTH FULL' : 'NO USE FOR IT', 'info');
+          this.audio.play('pickup-refused');
+        }
+        return false;
+      }
+      this.hp = Math.min(MAX_HP, this.hp + offer.amount);
+      this.hud.flash(`+${offer.amount} HP`, 'good');
+      this.audio.play('meeting-attended');
+      return true;
+    }
+
     if (offer.kind === 'weapon') {
       this.loadout.equip(offer.id);
       this.player.setWeapon(offer.id);
@@ -417,24 +547,23 @@ export class Game {
       return true;
     }
 
-    if (this.loadout.id !== offer.id) {
-      if (firstTouch) {
-        this.hud.flash(`NEED THE ${WEAPONS[offer.id].name.toUpperCase()}`, 'warn');
-        this.audio.play('pickup-refused');
+    // Only refuse a top-up you genuinely cannot use: the gun you're already
+    // holding, already full.
+    if (this.loadout.id === offer.id && this.loadout.ammo !== null) {
+      if (this.loadout.ammo >= (this.loadout.maxAmmo ?? 0)) {
+        if (firstTouch) {
+          this.hud.flash('AMMO FULL', 'info');
+          this.audio.play('pickup-refused');
+        }
+        return false;
       }
-      return false;
-    }
-    if (this.loadout.ammo !== null && this.loadout.ammo >= (this.loadout.maxAmmo ?? 0)) {
-      if (firstTouch) {
-        this.hud.flash('AMMO FULL', 'info');
-        this.audio.play('pickup-refused');
-      }
-      return false;
     }
 
+    const swapping = this.loadout.id !== offer.id;
     this.loadout.addAmmo(offer.id, offer.rounds);
     this.player.setWeapon(offer.id);
-    this.hud.flash(`+${offer.rounds} ${WEAPONS[offer.id].name.toUpperCase()}`, 'good');
+    const name = WEAPONS[offer.id].name.toUpperCase();
+    this.hud.flash(swapping ? `${name} ×${offer.rounds}` : `+${offer.rounds} ${name}`, 'good');
     this.audio.play('pickup-ammo');
     return true;
   }
@@ -448,25 +577,41 @@ export class Game {
    * drops in one wave would carpet the route.
    */
   private rollDrop(enemy: Enemy): void {
-    if (enemy instanceof AiBro) return;
+    // The stampede pays out, but rarely and never a weapon. Two dozen bodies at
+    // the old 30% would carpet the route in guns; at 8%, ammo or a medkit, a
+    // herd is worth two or three pickups. That is the difference between the
+    // stampede being purely something to run from and something you might
+    // choose to stand and thin out — which matters more now that it arrives
+    // during the extraction hold, when running is not an option.
+    if (enemy instanceof AiBro) {
+      if (this.rng.next() > 0.08) return;
+      const offer: PickupOffer =
+        this.rng.next() < 0.45
+          ? { kind: 'health', amount: 1 }
+          : { kind: 'ammo', id: 'smg', rounds: 40 };
+      this.pickups.place(offer, { x: enemy.x, z: enemy.z });
+      return;
+    }
 
     let chance = 0.3;
     if (enemy instanceof MeetingOrganizer) chance = 0.6;
-    if (enemy instanceof InviteSwarm) chance = 1;
+    if (enemy instanceof InviteStorm) chance = 1;
     if (this.rng.next() > chance) return;
 
     const roll = this.rng.next();
     let offer: PickupOffer;
-    if (enemy instanceof InviteSwarm) {
+    if (enemy instanceof InviteStorm) {
       // The boss always pays out properly.
-      offer = { kind: 'weapon', id: 'shotgun', rounds: 0 };
-    } else if (roll < 0.62) {
+      offer = { kind: 'weapon', id: 'shotgun' };
+    } else if (roll < 0.24) {
+      offer = { kind: 'health', amount: 1 };
+    } else if (roll < 0.68) {
       const id = this.rng.next() < 0.6 ? 'smg' : 'shotgun';
       offer = { kind: 'ammo', id, rounds: id === 'smg' ? 55 : 9 };
-    } else if (roll < 0.88) {
-      offer = { kind: 'weapon', id: 'smg', rounds: 0 };
+    } else if (roll < 0.9) {
+      offer = { kind: 'weapon', id: 'smg' };
     } else {
-      offer = { kind: 'weapon', id: 'shotgun', rounds: 0 };
+      offer = { kind: 'weapon', id: 'shotgun' };
     }
 
     this.pickups.place(offer, { x: enemy.x, z: enemy.z });
@@ -475,6 +620,9 @@ export class Game {
   private onBombDetonated(x: number, z: number): void {
     if (this.state !== 'playing') return;
     this.audio.play('bomb-detonate', x, z);
+    // Not your noise, and a gift: it drags attention to the crater rather than
+    // to you. Worth stepping out of a blast you could have tanked.
+    this.noise.emit(x, z, BOMB_NOISE);
 
     const distance = Math.hypot(this.player.x - x, this.player.z - z);
     // Felt from further away than it reaches, but only a hit inside the ring.
@@ -529,6 +677,7 @@ export class Game {
     );
 
     this.audio.play('player-hit');
+    this.tally.hitsTaken += 1;
     const dropped = this.carry.knockLoose(this.player);
     this.player.invulnTimer = HIT_INVULN;
     this.rig.addTrauma(dropped ? 0.55 : 0.3);
@@ -583,7 +732,7 @@ export class Game {
    * `ledger.result()`. `sendResult` is idempotent on the protocol side too —
    * belt and braces, because a double send could act on stale state.
    */
-  private finish(outcome: Outcome): void {
+  private finish(outcome: Outcome, cause?: DebriefReason): void {
     if (this.state === 'debrief') return;
     this.state = 'debrief';
 
@@ -592,13 +741,27 @@ export class Game {
     // incoherent — and it would have committed nothing either way.
     const empty = outcome === 'win' && this.ledger.result(outcome).surviving.length === 0;
     const finalOutcome: Outcome = empty ? 'loss' : outcome;
-    const reason: DebriefReason = empty ? 'empty-handed' : outcome === 'win' ? 'extracted' : 'down';
+    const reason: DebriefReason = empty
+      ? 'empty-handed'
+      : outcome === 'win'
+        ? 'extracted'
+        : (cause ?? 'down');
 
     this.audio.play(finalOutcome === 'win' ? 'extracted' : 'failed');
     this.audio.fadeMusicOut();
 
     const result = this.ledger.result(finalOutcome);
-    this.git?.sendResult(finalOutcome, result);
+    this.git?.sendResult(finalOutcome, {
+      ...result,
+      stats: {
+        seconds: this.tally.seconds,
+        hitsTaken: this.tally.hitsTaken,
+        hpRemaining: Math.max(0, this.hp),
+        hpMax: MAX_HP,
+        kills: this.tally.kills,
+        recovered: this.tally.recovered,
+      },
+    });
     showDebrief(this.uiRoot, {
       outcome: finalOutcome,
       reason,
@@ -633,6 +796,14 @@ export class Game {
 
     this.reticle.position.set(this.aim.x, 0.05, this.aim.z);
     this.reticle.visible = this.state === 'playing';
+    // Decays on real time so the kick reads the same through hitstop.
+    this.shotFlash = Math.max(0, this.shotFlash - realDt * 6);
+    this.aimIndicator.update(
+      this.combat.aimEnvelope(this.player),
+      this.state === 'playing' && !this.player.isRolling,
+      this.shotFlash,
+    );
+    this.updateVisionCones(realDt);
     this.lighting.follow(this.renderPos.x, this.renderPos.z);
     this.beacon.update(this.extraction.progress, this.extraction.inside, Time.real);
 
@@ -657,7 +828,9 @@ export class Game {
 
   /**
    * F1 simulates a hit and F2 ends the run, so the whole cargo loop can be
-   * exercised before enemies exist (M3).
+   * exercised before enemies exist (M3). F4 cycles the loadout — the three
+   * weapons are otherwise gated behind pickups a third and two thirds of the
+   * way along the route, which is a long walk to check a spread change.
    */
   private bindDebugKeys(): () => void {
     const onKey = (e: KeyboardEvent): void => {
@@ -667,6 +840,25 @@ export class Game {
       } else if (e.code === 'F2') {
         e.preventDefault();
         this.finish('loss');
+      } else if (e.code === 'F5') {
+        // Drop one of each loot kind at your feet. Kill-drops are rare by
+        // design, which makes the pickup paths — and especially the medkit,
+        // which only exists under the health rule — otherwise very tedious to
+        // exercise by hand.
+        e.preventDefault();
+        this.pickups.place({ kind: 'health', amount: 1 }, { x: this.player.x + 2, z: this.player.z });
+        this.pickups.place(
+          { kind: 'ammo', id: 'shotgun', rounds: 9 },
+          { x: this.player.x - 2, z: this.player.z },
+        );
+        this.hud.flash('DEV — LOOT', 'info');
+      } else if (e.code === 'F4') {
+        e.preventDefault();
+        const next =
+          WEAPON_ORDER[(WEAPON_ORDER.indexOf(this.loadout.id) + 1) % WEAPON_ORDER.length];
+        this.loadout.equip(next);
+        this.player.setWeapon(next);
+        this.hud.flash(`DEV — ${WEAPONS[next].name}`, 'info');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -736,7 +928,7 @@ export class Game {
   private syncEnemies(alpha: number): void {
     for (const enemy of this.combat.enemies) {
       if (enemy instanceof AiBro) enemy.syncBro(alpha);
-      else if (enemy instanceof InviteSwarm) enemy.syncSwarm(alpha);
+      else if (enemy instanceof InviteStorm) enemy.syncStorm(alpha);
       else if (enemy instanceof MeetingOrganizer) enemy.syncOrganizer(alpha);
       else if (enemy instanceof Recruiter) enemy.syncRecruiter(alpha);
       else if (enemy instanceof Intern) enemy.syncIntern(alpha);
@@ -769,9 +961,47 @@ export class Game {
     return Math.min(1, weight / 7);
   }
 
+  /**
+   * Draw the nearest few vision cones.
+   *
+   * Uses the simulation position rather than the interpolated one: the cone
+   * describes what the enemy can see *now*, and a cone that lags the body it
+   * belongs to reads as a rendering fault rather than a smoothing choice.
+   */
+  private updateVisionCones(realDt: number): void {
+    this.visionCones.begin(this.player.x, this.player.z);
+    this.alertMarks.begin();
+    if (this.state === 'playing') {
+      for (const enemy of this.combat.enemies) {
+        if (enemy.dying) continue;
+        this.visionCones.add(enemy.x, enemy.z, enemy.sense);
+        this.alertMarks.add(enemy.x, MARK_HEIGHT, enemy.z, enemy.sense);
+      }
+    }
+    this.visionCones.end(Time.real);
+    this.alertMarks.end();
+    // Real time, so a kill keeps blooming through its own hitstop.
+    this.hitFlashes.update(realDt);
+  }
+
+  /** Unaware / suspicious / alerted, so the stealth layer is inspectable. */
+  private senseCounts(): string {
+    let unaware = 0;
+    let suspicious = 0;
+    let alerted = 0;
+    for (const enemy of this.combat.enemies) {
+      if (enemy.dying) continue;
+      if (enemy.sense.state === 'alerted') alerted++;
+      else if (enemy.sense.state === 'suspicious') suspicious++;
+      else unaware++;
+    }
+    return `U:${unaware} S:${suspicious} A:${alerted}`;
+  }
+
   private debugText(): string {
     const p = this.player;
     const r = this.mission.rules;
+    const e = this.combat.aimEnvelope(p);
     return [
       `fps      ${this.loop.fps.toFixed(0)}`,
       `state    ${this.state}`,
@@ -780,12 +1010,15 @@ export class Game {
       `rules    loss=${r.loss} death=${r.death} stash=${r.stash}`,
       `hp       ${r.death === 'health' ? `${this.hp}/${MAX_HP}` : 'n/a'}`,
       `weapon   ${this.loadout.weapon.name} ${this.loadout.ammo ?? '∞'}`,
+      `aim      c${e.centre.toFixed(1)} l${e.left.toFixed(1)} r${e.right.toFixed(1)} · spread ${e.halfAngle.toFixed(3)}`,
       `cargo    ${this.ledger.carriedCount} carried · ${this.ledger.dropped.length} dropped · ${this.ledger.stashed.length} stashed · ${this.ledger.lost.length} lost`,
       `hold     ${(this.extraction.progress * 100).toFixed(0)}%`,
       `enemies  ${this.combat.liveEnemies} · ${this.combat.projectiles.activeCount} shots · ${this.meetings.meetings.length} meetings`,
+      `sense    ${this.senseCounts()} · ${this.visionCones.drawn} cones · conspicuous ${this.conspicuous().toFixed(2)}`,
+      `flash    ${this.hitFlashes.live} live · ${this.hitFlashes.spawned} total`,
       `draws    ${this.renderer.info.render.calls}`,
       '',
-      'WASD move · LMB fire · space dodge · Q drop · E stash · F1 hit · F2 fail',
+      'WASD move · LMB fire · space dodge · Q drop · E stash · F1 hit · F2 fail · F4 weapon · F5 loot',
     ].join('\n');
   }
 }

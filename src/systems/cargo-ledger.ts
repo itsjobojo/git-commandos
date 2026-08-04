@@ -1,4 +1,4 @@
-import type { Outcome, RunResult, Rules, StagedFile } from '../net/protocol';
+import type { CargoOutcome, Outcome, Rules, StagedFile } from '../net/protocol';
 
 /**
  * THE FILE LEDGER.
@@ -104,6 +104,23 @@ export class CargoLedger {
     return this.crates.filter((c) => c.state === 'lost');
   }
 
+  /**
+   * True once nothing can still make the commit.
+   *
+   * `lost` is the only terminal state — `world` and `dropped` are still on the
+   * floor waiting to be picked up, and `stashed` still ships. So the run is
+   * only unwinnable when every crate has decayed away, and at that point there
+   * is nothing left to play for: reaching the pad would report a win and commit
+   * nothing. Ending it there is both honest and kinder than a lap of an empty
+   * map.
+   *
+   * A mission with no files at all is not "wiped" — there was never anything
+   * to lose, and a sandbox run with an empty diff should not insta-fail.
+   */
+  get allLost(): boolean {
+    return this.crates.length > 0 && this.crates.every((c) => c.state === 'lost');
+  }
+
   find(name: string): CrateRecord | undefined {
     return this.crates.find((c) => c.name === name);
   }
@@ -195,7 +212,7 @@ export class CargoLedger {
    * - Anything else — still on the map, lying on the ground, or decayed — is
    *   lost, and the loss rule decides whether that means unstaged or deleted.
    */
-  result(outcome: Outcome): RunResult {
+  result(outcome: Outcome): CargoOutcome {
     const persist = this.rules.stash === 'persist';
     const surviving: string[] = [];
     const stashed: string[] = [];

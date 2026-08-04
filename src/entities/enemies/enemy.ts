@@ -2,6 +2,7 @@ import type { Group } from 'three';
 import { Entity } from '../entity';
 import type { Grid } from '../../world/grid';
 import type { Rng } from '../../core/rng';
+import { createSense, type Sense, type SenseProfile } from '../../systems/awareness';
 
 /**
  * What an enemy is allowed to know and do.
@@ -12,16 +13,35 @@ import type { Rng } from '../../core/rng';
  * costs, because only `Game` knows the death rule.
  */
 export interface EnemyContext {
-  readonly playerX: number;
-  readonly playerZ: number;
+  /**
+   * The player's *physical* position, for contact and proximity only.
+   *
+   * Anything that counts as *noticing* the player must go through `this.sense`
+   * instead, or the enemy is reading through walls. The two legitimate readers
+   * are `tryTouch` and the AI-bro shove: you cannot fail to notice someone
+   * walking into you.
+   */
+  readonly bodyX: number;
+  readonly bodyZ: number;
   /** How much cargo the player is hauling — several archetypes key off this. */
   readonly playerCarrying: number;
+  /**
+   * 0..1 how conspicuous that cargo makes them. Feeds the vision cones: hauling
+   * everything gets you spotted further off and sooner.
+   */
+  readonly conspicuous: number;
   readonly grid: Grid;
   readonly rng: Rng;
   /** Real elapsed seconds, for animation that must not stop during hitstop. */
   readonly time: number;
   /** True once the extraction hold has started — the cue to escalate. */
   readonly extracting: boolean;
+  /** The extraction pad. Where everyone converges once the hold is running. */
+  readonly padX: number;
+  readonly padZ: number;
+
+  /** Make a sound at a world position. Walls do not stop it. */
+  noise(x: number, z: number, radius: number): void;
 
   fire(opts: {
     x: number;
@@ -49,9 +69,27 @@ export interface EnemyContext {
   throwBomb(fromX: number, fromZ: number, toX: number, toZ: number): void;
 }
 
-const HIT_FLASH_SECONDS = 0.16;
+/**
+ * Long enough to survive a glance away. At 0.16s the pop landed entirely
+ * between two looks at the same enemy, which is most of why hits read as
+ * nothing happening.
+ */
+const HIT_FLASH_SECONDS = 0.22;
 
 export abstract class Enemy extends Entity {
+  /**
+   * What this enemy currently believes about the player.
+   *
+   * Built in the constructor rather than a field initialiser on purpose:
+   * subclass field initialisers run *after* the base constructor, so a
+   * `senseProfile` declared as a field would still be the base default at the
+   * moment `createSense` read it. Taking it as a constructor argument makes the
+   * ordering impossible to get wrong.
+   */
+  readonly sense: Sense;
+  /** Seconds spent unaware and far away, for the despawn sweep. */
+  forgottenFor = 0;
+
   hp = 3;
   maxHp = 3;
   /** Contact damage cooldown, so touching the player doesn't hit every step. */
@@ -68,6 +106,11 @@ export abstract class Enemy extends Entity {
 
   abstract readonly group: Group;
 
+  constructor(readonly senseProfile: SenseProfile) {
+    super();
+    this.sense = createSense(senseProfile, 0);
+  }
+
   /** Per-step behaviour. */
   abstract think(dt: number, ctx: EnemyContext): void;
 
@@ -78,7 +121,7 @@ export abstract class Enemy extends Entity {
 
   /** Scale multiplier for the hit pop. 1 when idle. */
   get hitScale(): number {
-    return 1 + Math.sin((this.hitFlash / HIT_FLASH_SECONDS) * Math.PI) * 0.22;
+    return 1 + Math.sin((this.hitFlash / HIT_FLASH_SECONDS) * Math.PI) * 0.38;
   }
 
   /** @returns true if this killed it. */
@@ -97,7 +140,7 @@ export abstract class Enemy extends Entity {
   /** Standard contact attack, rate-limited. */
   protected tryTouch(ctx: EnemyContext, reach = 0.4): void {
     if (this.touchCooldown > 0) return;
-    const d = Math.hypot(ctx.playerX - this.x, ctx.playerZ - this.z);
+    const d = Math.hypot(ctx.bodyX - this.x, ctx.bodyZ - this.z);
     if (d > this.radius + reach + 0.55) return;
     if (ctx.hitPlayer(this.x, this.z)) this.touchCooldown = 1.2;
   }

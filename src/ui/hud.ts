@@ -277,7 +277,7 @@ export class Hud {
     this.barFill.style.width = `${(state.progress * 100).toFixed(1)}%`;
     this.barLabel.textContent = state.inside
       ? `writing commit object — ${state.secondsRemaining.toFixed(1)}s`
-      : 'extraction paused — return to the beacon';
+      : 'extraction paused — return to the commit tube';
     this.barFill.style.background = state.inside ? '#4ade80' : '#8fa3ae';
 
     this.status.style.display = state.progress >= 1 ? 'none' : 'block';

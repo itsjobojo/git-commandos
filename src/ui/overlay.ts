@@ -50,11 +50,16 @@ export function fadeIn(node: HTMLElement, ms = 220): void {
  * that gates real file loss must not be dismissable by a click that was
  * already in flight when it opened — and the click target is a specific
  * button, never the whole backdrop, for the same reason.
+ *
+ * `enabled` gates the same thing for as long as the caller needs: a screen that
+ * has opened a sub-panel over itself is still listening, and without this the
+ * Enter that was meant to close the sub-panel deploys the run behind it.
  */
 export function waitForKey(
   codes: string[],
   clickTarget?: HTMLElement,
   minDelayMs = 300,
+  enabled: () => boolean = () => true,
 ): Promise<void> {
   return new Promise((resolve) => {
     const readyAt = performance.now() + minDelayMs;
@@ -65,14 +70,14 @@ export function waitForKey(
       resolve();
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (performance.now() < readyAt) return;
+      if (performance.now() < readyAt || !enabled()) return;
       if (codes.includes(e.code)) {
         e.preventDefault();
         done();
       }
     };
     const onClick = (): void => {
-      if (performance.now() < readyAt) return;
+      if (performance.now() < readyAt || !enabled()) return;
       done();
     };
 

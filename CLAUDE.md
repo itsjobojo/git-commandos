@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Git Commandos is a 3D top-down **extraction shooter** that gates real git operations behind gameplay. Running `gcmds commit -m "message"` opens a browser game; your staged files are cargo you must carry to the extraction pad. Files you fail to extract are unstaged (or deleted in `--extreme` mode).
 
-The game layer is mid-rebuild — see **REBUILD.md** for the full design and milestone plan. `cli/` predates the rebuild and is deliberately untouched.
+The game layer is mid-rebuild — see **REBUILD.md** for the full design and milestone plan. `cli/` predates the rebuild and is touched only where a game feature reaches all the way out to git.
 
 ## Commands
 
@@ -23,7 +23,7 @@ gcmds commit -m "msg" --extreme  # Extreme mode: lost files are deleted from dis
 
 `GCMDS_NO_OPEN=1` stops the server launching a browser, so the protocol can be driven headlessly in tests.
 
-`pnpm test` runs vitest. The suites are deliberately few, and cover only what fails silently or fails expensively: `src/systems/cargo-ledger.test.ts` (the ledger decides which of the user's files get committed, unstaged or deleted — the one module that must never regress; add to it whenever you touch cargo rules), `world/arena.test.ts` (an unreachable extraction costs someone their commit), `systems/meetings.test.ts`, and `assets/manifest.test.ts` (a mistyped asset path 404s quietly and nothing looks broken). There is no linting configured.
+`pnpm test` runs vitest. The suites are deliberately few, and cover only what fails silently or fails expensively: `src/systems/cargo-ledger.test.ts` (the ledger decides which of the user's files get committed, unstaged or deleted — the one module that must never regress; add to it whenever you touch cargo rules), `world/arena.test.ts` (an unreachable extraction costs someone their commit; also that alternate routes really are second ways through and dead ends really are dead ends), `world/route.test.ts` (the clearance rules that make those topology guarantees true — cheap to assert on polylines, expensive to assert on a bitmap), `game/director.test.ts` (enemies spawned somewhere the player never walks are spawn budget spent on nothing, and it looks like an empty map rather than a bug), `systems/meetings.test.ts`, `assets/manifest.test.ts` (a mistyped asset path 404s quietly and nothing looks broken), and `cli/commit-trailer.test.mjs` (the only code that edits the user's commit message — the failures worth catching are the message not surviving intact and the footer stacking on a re-run). There is no linting configured.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ gcmds commit -m "msg" --extreme  # Extreme mode: lost files are deleted from dis
 ```
 core/      loop (fixed 60Hz + interpolated render), input→intent, seeded rng, time scaling
 render/    camera rig, lighting, floor, palette, beacon, reticle — no gameplay state
-world/     grid collision (the physics), map assembly
+world/     grid collision (the physics), route planning, map assembly
 entities/  Entity base + Player; enemies land in M3
 systems/   the rules: extraction, cargo, combat, carry, audio; vfx to come
 assets/    manifest.ts — the only file allowed to contain an asset path string
@@ -67,7 +67,7 @@ The CLI server sends one `init` message when the browser connects:
                "branch": "main", "repo": "myproject" } }
 ```
 
-…plus a `rules` block alongside `payload`. The game replies with exactly one `{ type: 'result', outcome: 'win'|'loss', payload: { survivingFiles[], lostFiles[], stashedFiles[] } }`. `stashedFiles` is only non-empty under `--stash=persist`: those are neither committed nor unstaged — the CLI drops them from the index, commits, and re-adds them so they stay staged for the next run. If the browser closes without a result, the CLI treats it as `abort` and does nothing — the correct failure mode for a tool that can unstage your work.
+…plus a `rules` block alongside `payload`. The game replies with exactly one `{ type: 'result', outcome: 'win'|'loss', payload: { survivingFiles[], lostFiles[], stashedFiles[], stats } }`. `stashedFiles` is only non-empty under `--stash=persist`: those are neither committed nor unstaged — the CLI drops them from the index, commits, and re-adds them so they stay staged for the next run. `stats` is the run tally (seconds, hits, HP, kills, crates recovered) that `cli/commit-trailer.mjs` stamps into the commit message; it is a report and nothing on either side may make a git decision out of it, and an older build omits it entirely. If the browser closes without a result, the CLI treats it as `abort` and does nothing — the correct failure mode for a tool that can unstage your work.
 
 `payload.files` also accepts the legacy `string[]` shape, so an older CLI works against a newer build.
 
@@ -77,8 +77,9 @@ The CLI server sends one `init` message when the browser connects:
 - Getting hit knocks the most recently collected crate loose. It decays on a visible timer and is lost for good if not recovered. A dropped crate has a short pickup lockout — without it the crate lands inside your own pickup radius and a hit costs nothing.
 - Mission rules are set by CLI flags (`cli/rules.mjs`) and travel in the init payload: `loss` (unstage/delete, from `--extreme`), `death` (cargo/health/fragile), `stash` (run/persist/off). Each has a safe default; the game must never apply a stricter rule than the one the user asked for.
 - Reaching the extraction pad and holding it completes the commit.
-- The mission seed is `branch:commitMessage`, so the same commit always generates the same map. Never use `Math.random()` in gameplay code — take an `Rng`.
+- The mission seed is rolled fresh on every deploy (`freshSeed` in `game/mission.ts`) — a commit names its world but does not fix it, so replaying a commit is a new place rather than another go at the same one. Everything downstream still derives from that one string, so a single run is reproducible given its seed. `freshSeed` is the only place `Math.random()` is allowed; gameplay code must take an `Rng`.
 - `Game.finish()` is the only place a result reaches the CLI, and `sendResult` is idempotent on both sides.
+- A successful commit carries a footer recording that it was made through the game, the run tally, and the rules it was played under. `cli/commit-trailer.mjs` builds it — pure, appends only, idempotent on the mark, and skipped entirely by `--no-trailer`. Because the message can now be multi-line, `commitFiles` feeds git on stdin (`-F -`); putting it through `-m` turns the newlines into a literal `\n`.
 
 ### Adding a new CLI command
 

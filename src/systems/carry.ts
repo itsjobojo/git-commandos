@@ -14,7 +14,8 @@ const STASH_RADIUS = 2.6;
 const STACK_SPACING = 0.42;
 
 export interface CarryEvents {
-  onPickup?: (record: CrateRecord) => void;
+  /** `recovered` marks a crate knocked loose and won back, not a fresh find. */
+  onPickup?: (record: CrateRecord, recovered: boolean) => void;
   onDrop?: (record: CrateRecord) => void;
   onDecayed?: (record: CrateRecord) => void;
   onStash?: (record: CrateRecord) => void;
@@ -79,7 +80,7 @@ export class CarrySystem {
       if (Math.hypot(player.x - crate.x, player.z - crate.z) > PICKUP_RADIUS) continue;
       if (this.ledger.pickUp(crate.record.name)) {
         this.attach(crate, player);
-        this.events.onPickup?.(crate.record);
+        this.events.onPickup?.(crate.record, state === 'dropped');
       }
     }
 
@@ -134,7 +135,8 @@ export class CarrySystem {
           crate.visual.setTint(PALETTE.crate);
           this.attach(crate, player);
         }
-        this.events.onPickup?.(record);
+        // Taking your own cache back is not a recovery under fire.
+        this.events.onPickup?.(record, false);
       }
       return;
     }

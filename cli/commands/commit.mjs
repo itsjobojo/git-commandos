@@ -1,24 +1,89 @@
 import { basename } from 'node:path';
-import { getStagedDiffStats, getBranch, commitFiles, unstageFiles, stageFiles, deleteFiles } from '../git-ops.mjs';
+import { getStagedDiffStats, getBranch, commitFiles, unstageFiles, stageFiles, deleteFiles, stageTrackedChanges } from '../git-ops.mjs';
 import { launchGame } from '../server.mjs';
 import { resolveRules, describeRules } from '../rules.mjs';
+import { stampCommitMessage } from '../commit-trailer.mjs';
+import { readMessageFromEditor } from '../commit-message.mjs';
 
 export const description = 'Commit staged files — but you must survive to ship them';
-export const usage = 'gcmds commit -m "message" [--extreme] [--death=…] [--stash=…]';
+export const usage =
+  'gcmds commit [-m "message"] [-a] [--extreme] [--death=…] [--stash=…] [--no-trailer]';
+
+/**
+ * Forms of `git commit` that rewrite history, take their message from
+ * somewhere we do not read, or commit a subset of the index. The game has
+ * nothing sensible to say about any of them, and guessing would cost someone a
+ * commit — so they go straight to real git.
+ */
+const NOT_OURS = [
+  '--amend', '--fixup', '--squash', '-C', '--reuse-message', '-c', '--reedit-message',
+  '-F', '--file', '--interactive', '-p', '--patch', '--dry-run', '--short', '--porcelain',
+  '--long', '-z', '--null', '--template', '-t',
+];
+
+/**
+ * @param {string[]} args
+ * @returns {boolean} true if this is a plain "commit what is staged" we can gate
+ */
+export function supports(args) {
+  for (const arg of args) {
+    const name = arg.startsWith('--') && arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
+    if (NOT_OURS.includes(name)) return false;
+    // A pathspec commits a subset of the working tree; the cargo hold is the
+    // whole index or nothing.
+    if (arg === '--') return false;
+  }
+  // Bare positionals are pathspecs too (`git commit file.ts`).
+  return !args.some((a, i) => !a.startsWith('-') && !isFlagValue(args, i));
+}
+
+/** Is args[i] the value of a preceding flag that takes one? */
+function isFlagValue(args, i) {
+  return i > 0 && (args[i - 1] === '-m' || args[i - 1] === '--message');
+}
+
+/**
+ * Pull the message out of the git-shaped arguments, and hand back everything
+ * else so it can be forwarded to the real commit untouched.
+ * @returns {{ message: string|null, all: boolean, forward: string[] }}
+ */
+export function parseCommitArgs(args) {
+  let message = null;
+  let all = false;
+  const forward = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '-m' || arg === '--message') {
+      message = args[++i] ?? null;
+    } else if (arg.startsWith('--message=')) {
+      message = arg.slice('--message='.length);
+    } else if (arg === '-a' || arg === '--all') {
+      all = true;
+    } else {
+      forward.push(arg);
+    }
+  }
+  return { message, all, forward };
+}
 
 export async function run(args, flags) {
-  // Parse commit message from -m flag
-  const mIdx = args.indexOf('-m');
-  if (mIdx === -1 || mIdx + 1 >= args.length) {
-    console.error('  Error: commit requires -m "message"');
-    process.exit(1);
-  }
-  const commitMessage = args[mIdx + 1];
+  const { message: messageArg, all, forward } = parseCommitArgs(args);
+
+  // `-a` stages tracked changes first, exactly as git would, so what the game
+  // shows you as cargo is what would have been committed.
+  if (all) stageTrackedChanges();
 
   const stats = getStagedDiffStats();
   const files = stats.files.map((f) => f.name);
   if (files.length === 0) {
     console.error('  No staged files. Stage some files first (git add).');
+    process.exit(1);
+  }
+
+  // No -m: get the message the way git does, before anything is at stake.
+  const commitMessage = messageArg ?? readMessageFromEditor({ files });
+  if (commitMessage === null) {
+    console.error('  Aborting commit due to empty commit message.');
     process.exit(1);
   }
 
@@ -76,6 +141,10 @@ export async function run(args, flags) {
   // Files left in the stash cache under --stash=persist. They are neither
   // committed nor unstaged — they stay staged for the next run.
   const stashed = payload?.stashedFiles || [];
+  // Absent when the browser is running a build older than the stats field. The
+  // trailer copes; nothing else may depend on it. Named apart from `stats`
+  // above, which is the staged *diff* — two very different things.
+  const runStats = payload?.stats || null;
 
   console.log('');
 
@@ -112,9 +181,21 @@ export async function run(args, flags) {
       process.exit(1);
     }
 
+    // What actually gets committed. `--no-trailer` leaves the message exactly
+    // as typed — rewriting someone's commit message should always be refusable.
+    const finalMessage = flags.noTrailer
+      ? commitMessage
+      : stampCommitMessage(commitMessage, { surviving, lost, stashed, rules, stats: runStats });
+
     try {
-      commitFiles(commitMessage);
-      console.log(`  ✅ Committed ${surviving.length} file(s): "${commitMessage}"`);
+      commitFiles(finalMessage, forward);
+      console.log(`  ✅ Committed ${surviving.length} file(s): "${commitMessage.split('\n')[0]}"`);
+      if (finalMessage !== commitMessage) {
+        console.log('');
+        for (const line of finalMessage.slice(commitMessage.length).trim().split('\n')) {
+          console.log(`    ${line}`);
+        }
+      }
     } catch (err) {
       console.error(`  ❌ Commit failed: ${err.message}`);
       if (stashed.length > 0) stageFiles(stashed);

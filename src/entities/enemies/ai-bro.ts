@@ -1,5 +1,6 @@
 import { Group } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
+import { SENSE_PROFILES } from '../../systems/awareness';
 import { SpeechBubble } from '../../render/bubble';
 import { AI_BRO_LINES } from './ai-bro-lines';
 import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
@@ -68,7 +69,7 @@ export class AiBro extends Enemy {
   private readonly vocal: boolean;
 
   constructor(rng: { range: (a: number, b: number) => number }) {
-    super();
+    super(SENSE_PROFILES.blind);
     // Three draws, in this order. The map and every line come off the same
     // seeded stream, so reordering them changes the whole mission for a given
     // commit message.
@@ -148,8 +149,8 @@ export class AiBro extends Enemy {
    */
   private shove(ctx: EnemyContext): void {
     if (this.touchCooldown > 0) return;
-    const dx = ctx.playerX - this.x;
-    const dz = ctx.playerZ - this.z;
+    const dx = ctx.bodyX - this.x;
+    const dz = ctx.bodyZ - this.z;
     const d = Math.hypot(dx, dz);
     if (d > this.radius + 0.85) return;
     this.shoveX = (dx / (d || 1)) * SHOVE;

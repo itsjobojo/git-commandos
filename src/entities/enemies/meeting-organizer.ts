@@ -1,5 +1,6 @@
 import { CylinderGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
+import { SENSE_PROFILES } from '../../systems/awareness';
 import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
 import { CAST } from '../../render/cast';
 import { PALETTE } from '../../render/palette';
@@ -28,7 +29,7 @@ export class MeetingOrganizer extends Enemy {
   private readonly rig: Humanoid;
 
   constructor() {
-    super();
+    super(SENSE_PROFILES.organizer);
 
     // Robed and cowled, both hands clasped: no legs, no stride, it glides.
     this.rig = createHumanoid(CAST.organizer, (this.id * 2.399963) % (Math.PI * 2));
@@ -57,15 +58,17 @@ export class MeetingOrganizer extends Enemy {
     this.spin += dt * 1.6;
 
     // Retreat if crowded, close if too far — it wants line of sight on you,
-    // because it schedules meetings where you are.
-    const dx = ctx.playerX - this.x;
-    const dz = ctx.playerZ - this.z;
+    // because it schedules meetings where you are. Which is now literal: it
+    // works off the last position it actually saw, so it is a spotter, and
+    // killing it blinds the room.
+    const dx = this.sense.targetX - this.x;
+    const dz = this.sense.targetZ - this.z;
     const distance = Math.hypot(dx, dz) || 1;
     const target =
       distance < KEEP_DISTANCE - 3
         ? { x: this.x - (dx / distance) * 8, z: this.z - (dz / distance) * 8 }
         : distance > KEEP_DISTANCE + 3
-          ? { x: ctx.playerX, z: ctx.playerZ }
+          ? { x: this.sense.targetX, z: this.sense.targetZ }
           : null;
 
     if (target) this.moveToward(dt, ctx.grid, target.x, target.z, SPEED);
@@ -78,9 +81,24 @@ export class MeetingOrganizer extends Enemy {
     advanceGait(this.rig, dt, Math.hypot(this.x - this.px, this.z - this.pz) / dt);
   }
 
-  /** True when it wants to place a meeting; the director does the placing. */
+  /**
+   * True when it wants to place a meeting; the director does the placing.
+   *
+   * Gated on having noticed you: an organizer that has not seen you dropping a
+   * mandatory meeting on your exact position is the same wallhack the whole
+   * stealth layer exists to remove, just wearing a calendar.
+   */
   wantsToSchedule(): boolean {
-    return this.scheduleTimer <= 0;
+    return this.scheduleTimer <= 0 && this.sense.state !== 'unaware';
+  }
+
+  /** Where it believes you are — the director places meetings here. */
+  get believedX(): number {
+    return this.sense.targetX;
+  }
+
+  get believedZ(): number {
+    return this.sense.targetZ;
   }
 
   resetSchedule(seconds: number): void {

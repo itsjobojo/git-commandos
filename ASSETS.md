@@ -91,7 +91,7 @@ HEAD~1:public/music/chiptune.xm` still has it if it is ever wanted back.
 
 `src/render/invite.ts` reproduces the Microsoft Outlook icon, drawn from the
 official artwork, at the project owner's explicit direction. It is used for the
-Invite Swarm mini-boss, the invites it fires, and the invite bombs.
+Outlook Invite Storm mini-boss and the invites it throws.
 
 This is the **only** thing in the repository that is not CC0, and it is a
 registered trademark of Microsoft Corporation. Nothing here is affiliated with

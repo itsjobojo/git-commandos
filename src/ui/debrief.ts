@@ -7,7 +7,7 @@ import type { Outcome } from '../net/protocol';
  * put down — you walked onto the pad with nothing, and saying so is clearer
  * than a generic GAME OVER.
  */
-export type DebriefReason = 'extracted' | 'empty-handed' | 'down';
+export type DebriefReason = 'extracted' | 'empty-handed' | 'down' | 'wiped';
 
 export interface DebriefData {
   outcome: Outcome;
@@ -22,6 +22,9 @@ const HEADLINE: Record<DebriefReason, { label: string; colour: string }> = {
   extracted: { label: 'extraction complete', colour: '#4ade80' },
   'empty-handed': { label: 'extracted empty-handed', colour: '#fbbf24' },
   down: { label: 'mission failed', colour: '#f87171' },
+  // Distinct from `down` on purpose: you were not killed, you simply have
+  // nothing left to carry out, and the debrief should say which happened.
+  wiped: { label: 'all cargo lost', colour: '#f87171' },
 };
 
 /**
@@ -44,7 +47,7 @@ export function showDebrief(root: HTMLElement, data: DebriefData): void {
       won
         ? `Committed ${surviving.length} file${surviving.length === 1 ? '' : 's'}`
         : reason === 'empty-handed'
-          ? 'You reached the beacon with no cargo'
+          ? 'You reached the commit tube empty-handed'
           : 'Nothing committed',
     ),
   );

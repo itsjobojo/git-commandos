@@ -109,7 +109,7 @@ of them is easy.
    is pure and tested for exactly that reason. `carry.ts` moves bodies.
 5. **Countdown/bubble textures are cached or redrawn in place.** Allocating a
    `CanvasTexture` per frame was a real frame-time cost.
-6. **No product names or logos.** The invite swarm is unbranded on purpose —
+6. **No product names or logos.** The Invite Storm is unbranded on purpose —
    this ships to npm, and ASSETS.md is CC0-only.
 7. **`sendResult` fires once.** A double send would let the CLI act twice on
    the user's index.

@@ -260,16 +260,21 @@ export function applyFacadeSurface(material: MeshStandardMaterial): void {
           // the answer is none.
           //
           // The subtraction is the important part: any building whose roll
-          // falls under the threshold gets a lit chance of exactly zero, so
-          // roughly half the city is completely dark. Giving every building
-          // even a small lit fraction is what turned the skyline into a solid
-          // sheet of light. A few busy buildings against many dark ones is both
-          // more varied and far easier on the bloom pass.
+          // falls under the threshold gets a lit chance of exactly zero. At 0.3
+          // that left about half the city dark, which still read as a lit city
+          // at night; at 0.55 most of it is genuinely out, and the few occupied
+          // buildings stand out as occupied rather than as slightly brighter
+          // wallpaper.
+          //
+          // The street is lit by street lamps now, so the windows no longer
+          // have to carry it. That is the whole reason this could come down:
+          // light that comes from where the light fittings are reads as a
+          // place, and light coming evenly off every wall reads as a texture.
           float life = gcHash(vec3(seed * 71.0, 1.0, 1.0));
-          float litChance = max(0.0, life - 0.3) * 0.72;
-          // Street level keeps a little more life than the floors above, so
-          // the route you actually walk down is not pitch black.
-          float groundChance = max(0.0, life - 0.12) * 0.45;
+          float litChance = max(0.0, life - 0.55) * 0.5;
+          // Street level keeps a little more life than the floors above, so a
+          // shopfront on the route is not completely dead.
+          float groundChance = max(0.0, life - 0.3) * 0.3;
           litChance = mix(litChance, groundChance, ground);
           float lit = step(1.0 - litChance, roll) * window * side;
 
@@ -285,10 +290,10 @@ export function applyFacadeSurface(material: MeshStandardMaterial): void {
           // apiece the pass had so much to work with that the whole screen went
           // to milk and the beacon stopped being the brightest thing on it.
           // A window is a small light seen at distance, not a light source.
-          float level = 0.2 + gcHash(vec3(id * 3.0, seed)) * 0.3;
+          float level = 0.13 + gcHash(vec3(id * 3.0, seed)) * 0.19;
 
           gcGlow = lamp * lit * level;
-          facade += lamp * lit * 0.1;
+          facade += lamp * lit * 0.06;
 
           // ---- Combine ----------------------------------------------------
           diffuseColor.rgb = mix(roofColour, facade, side);
@@ -308,7 +313,7 @@ export function applyFacadeSurface(material: MeshStandardMaterial): void {
         '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gcGlow;',
       );
   };
-  material.customProgramCacheKey = () => 'gc-facade-v1';
+  material.customProgramCacheKey = () => 'gc-facade-v2-dim';
 }
 
 /**
@@ -352,6 +357,64 @@ export function applyConcreteSurface(material: MeshStandardMaterial, height: num
       );
   };
   material.customProgramCacheKey = () => `gc-concrete-v1-${height.toFixed(2)}`;
+}
+
+/**
+ * Tree canopies.
+ *
+ * The occlusion dissolve is the reason this exists rather than a plain
+ * material. A canopy is the worst possible occluder for a 57° camera — it is
+ * wide, it sits at head height, and unlike a building you cannot see the street
+ * under it — so a tree between the camera and the player would otherwise park
+ * itself over the thing you are steering for as long as you stood there.
+ *
+ * The look is dappling rather than grain: light broken up by leaves, lit from
+ * above, with the underside falling away into the dark so the canopy reads as a
+ * mass with a shape instead of a flat green ball.
+ */
+export function applyFoliageSurface(material: MeshStandardMaterial, height: number): void {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uCanopyHeight = { value: height };
+    shader.uniforms.uPlayerWorld = { value: new Vector3(0, 0.9, 0) };
+    shader.uniforms.uOccluderRadius = { value: OCCLUDER_RADIUS };
+    withInstanceVaryings(shader);
+    material.userData.gcUniforms = shader.uniforms;
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>\n${FRAGMENT_HEAD}\nuniform float uCanopyHeight;`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */ `
+        #include <color_fragment>
+        gcGlow = vec3(0.0);
+        {
+          gcApplyOcclusion(vGcWorld);
+
+          // Two octaves at different pitches: the coarse one breaks the canopy
+          // into clumps, the fine one into leaves. One alone reads as either a
+          // lumpy potato or television static.
+          float clump = gcNoise(vGcWorld * vec3(0.9, 1.1, 0.9));
+          float leaf = gcNoise(vGcWorld * vec3(4.3, 4.7, 4.3));
+          diffuseColor.rgb *= 0.72 + clump * 0.42 + leaf * 0.16;
+
+          // Lit from above, dark underneath.
+          float up = clamp(vGcNormal.y * 0.5 + 0.5, 0.0, 1.0);
+          diffuseColor.rgb *= mix(0.5, 1.15, up);
+
+          float h = clamp(vGcWorld.y / max(uCanopyHeight, 0.001), 0.0, 1.0);
+          diffuseColor.rgb *= mix(0.78, 1.06, h);
+        }
+        `,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gcGlow;',
+      );
+  };
+  material.customProgramCacheKey = () => `gc-foliage-v1-${height.toFixed(2)}`;
 }
 
 /**

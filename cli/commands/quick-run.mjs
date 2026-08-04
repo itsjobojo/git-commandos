@@ -1,7 +1,6 @@
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
-import { unstageFiles } from '../git-ops.mjs';
+import { stageFiles, unstageFiles } from '../git-ops.mjs';
 import { launchGame } from '../server.mjs';
 
 export const description = 'Stage fake files and play a test round, then clean up';
@@ -31,7 +30,7 @@ export async function run(args, flags) {
     const content = [`// quick-run: ${name}`, ...Array.from({ length: lines }, (_, i) => `export const line${i + 1} = ${i + 1};`)].join('\n') + '\n';
     writeFileSync(join(FAKE_DIR, name), content);
   }
-  execSync(`git add ${FAKE_DIR}`, { stdio: 'pipe' });
+  stageFiles([FAKE_DIR]);
 
   const stagedFiles = files.map((f) => `${FAKE_DIR}/${f}`);
 

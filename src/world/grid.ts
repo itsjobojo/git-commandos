@@ -142,7 +142,7 @@ export class Grid {
    * crouching behind waist-high cover hides you from bullets, not from eyes.
    */
   hasLineOfSight(x0: number, z0: number, x1: number, z1: number): boolean {
-    return this.trace(x0, z0, x1, z1, (cx, cz) => this.cell(cx, cz) === CELL.WALL);
+    return this.reaches(x0, z0, x1, z1, false);
   }
 
   /**
@@ -150,44 +150,88 @@ export class Grid {
    * makes it worth standing behind.
    */
   hasClearShot(x0: number, z0: number, x1: number, z1: number): boolean {
-    return this.trace(x0, z0, x1, z1, (cx, cz) => this.isSolid(cx, cz));
+    return this.reaches(x0, z0, x1, z1, true);
   }
 
   /**
-   * Amanatides-Woo grid traversal. Walks the cells a ray passes through and
-   * stops at the first one `blocks` rejects.
+   * How far a ray gets before something stops it, clamped to `max`.
+   *
+   * The aim indicator needs a distance rather than a yes/no: a laser has to end
+   * *at* the wall, not merely know one is there. `dirX`/`dirZ` must be a unit
+   * vector — the returned value is then a world distance.
+   *
+   * @param blocksCover true for shots (WALL and COVER), false for eyes (WALL
+   *   only). Drawing a shot line through waist-high cover would lie in exactly
+   *   the situation where the indicator matters most.
    */
-  private trace(
+  rayDistance(
+    x0: number,
+    z0: number,
+    dirX: number,
+    dirZ: number,
+    max: number,
+    blocksCover: boolean,
+  ): number {
+    return this.walk(x0, z0, dirX, dirZ, max, blocksCover);
+  }
+
+  private reaches(
     x0: number,
     z0: number,
     x1: number,
     z1: number,
-    blocks: (cx: number, cz: number) => boolean,
+    blocksCover: boolean,
   ): boolean {
-    const t = this.tile;
-    let cx = this.cellX(x0);
-    let cz = this.cellZ(z0);
-    const endX = this.cellX(x1);
-    const endZ = this.cellZ(z1);
-
     const dx = x1 - x0;
     const dz = z1 - z0;
-    const stepX = Math.sign(dx);
-    const stepZ = Math.sign(dz);
+    const distance = Math.hypot(dx, dz);
+    // Degenerate ray: the only thing that can stop it is the cell it starts in.
+    if (distance < 1e-9) return !this.blocks(this.cellX(x0), this.cellZ(z0), blocksCover);
+    return this.walk(x0, z0, dx / distance, dz / distance, distance, blocksCover) >= distance;
+  }
 
-    const tDeltaX = dx === 0 ? Infinity : Math.abs(t / dx);
-    const tDeltaZ = dz === 0 ? Infinity : Math.abs(t / dz);
+  private blocks(cx: number, cz: number, blocksCover: boolean): boolean {
+    return blocksCover ? this.isSolid(cx, cz) : this.cell(cx, cz) === CELL.WALL;
+  }
 
-    let tMaxX =
-      dx === 0 ? Infinity : (((stepX > 0 ? cx + 1 : cx) * t) - x0) / dx;
-    let tMaxZ =
-      dz === 0 ? Infinity : (((stepZ > 0 ? cz + 1 : cz) * t) - z0) / dz;
+  /**
+   * Amanatides-Woo grid traversal. Walks the cells a ray passes through and
+   * returns the distance at which it entered the first blocking one, or `max`
+   * if it never hit anything.
+   *
+   * Because `dirX`/`dirZ` are unit length, the traversal parameter *is* the
+   * distance — which is what lets the boolean sight checks and the aim
+   * indicator share one walk instead of drifting apart.
+   */
+  private walk(
+    x0: number,
+    z0: number,
+    dirX: number,
+    dirZ: number,
+    max: number,
+    blocksCover: boolean,
+  ): number {
+    const tile = this.tile;
+    let cx = this.cellX(x0);
+    let cz = this.cellZ(z0);
 
+    const stepX = Math.sign(dirX);
+    const stepZ = Math.sign(dirZ);
+
+    const tDeltaX = dirX === 0 ? Infinity : Math.abs(tile / dirX);
+    const tDeltaZ = dirZ === 0 ? Infinity : Math.abs(tile / dirZ);
+
+    let tMaxX = dirX === 0 ? Infinity : ((stepX > 0 ? cx + 1 : cx) * tile - x0) / dirX;
+    let tMaxZ = dirZ === 0 ? Infinity : ((stepZ > 0 ? cz + 1 : cz) * tile - z0) / dirZ;
+
+    let t = 0;
     // Bounded so a degenerate ray can't spin forever.
-    const maxSteps = this.cols + this.rows;
+    const maxSteps = this.cols + this.rows + 2;
     for (let i = 0; i < maxSteps; i++) {
-      if (blocks(cx, cz)) return false;
-      if (cx === endX && cz === endZ) return true;
+      if (this.blocks(cx, cz, blocksCover)) return t;
+      const next = tMaxX < tMaxZ ? tMaxX : tMaxZ;
+      if (!(next < max)) return max;
+      t = next;
       if (tMaxX < tMaxZ) {
         tMaxX += tDeltaX;
         cx += stepX;
@@ -196,7 +240,7 @@ export class Grid {
         cz += stepZ;
       }
     }
-    return false;
+    return max;
   }
 }
 

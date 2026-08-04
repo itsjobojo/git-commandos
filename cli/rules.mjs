@@ -10,7 +10,10 @@
 export const RULE_OPTIONS = {
   death: {
     values: ['cargo', 'health', 'fragile'],
-    default: 'cargo',
+    // Must stay in step with DEFAULT_RULES in src/net/protocol.ts. `cargo` is
+    // the gentler rule and stays available as an opt-in, but a default where
+    // you cannot die reads as broken enemies rather than as a mercy.
+    default: 'health',
     describe: {
       cargo: 'hits only knock cargo loose — you cannot be killed',
       health: 'separate health pool; running out loses everything',

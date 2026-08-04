@@ -13,6 +13,7 @@ import {
   SpriteMaterial,
 } from 'three';
 import { createWeaponModel } from '../render/weapon-models';
+import { PALETTE } from '../render/palette';
 import { WEAPONS, type WeaponId } from './weapons';
 import type { Spot } from '../world/arena';
 
@@ -20,16 +21,20 @@ const PICKUP_RADIUS = 1.6;
 /** Dropped loot clears itself up; placed route weapons never expire. */
 const DROP_LIFETIME = 30;
 
-export type PickupKind = 'weapon' | 'ammo';
+export type PickupKind = 'weapon' | 'ammo' | 'health';
 
-export interface PickupOffer {
-  kind: PickupKind;
-  id: WeaponId;
-  /** Rounds offered, for ammo pickups. */
-  rounds: number;
-}
+/**
+ * A union rather than one shape with optional fields: a medkit has no weapon
+ * id and a weapon has no round count, and letting the type say so is what stops
+ * `rounds: 0` being passed around as a placeholder nobody reads.
+ */
+export type PickupOffer =
+  | { readonly kind: 'weapon'; readonly id: WeaponId }
+  | { readonly kind: 'ammo'; readonly id: WeaponId; readonly rounds: number }
+  | { readonly kind: 'health'; readonly amount: number };
 
-interface Pickup extends PickupOffer {
+interface Pickup {
+  offer: PickupOffer;
   x: number;
   z: number;
   group: Group;
@@ -40,6 +45,19 @@ interface Pickup extends PickupOffer {
   /** Infinity for route weapons. */
   life: number;
   wasInside: boolean;
+}
+
+/** Medkits are the one pickup that isn't about a gun, so they get their own colour. */
+const HEALTH_TINT = PALETTE.player;
+
+function tintOf(offer: PickupOffer): number {
+  return offer.kind === 'health' ? HEALTH_TINT : WEAPONS[offer.id].tint;
+}
+
+function labelOf(offer: PickupOffer): string {
+  if (offer.kind === 'health') return `medkit +${offer.amount}`;
+  if (offer.kind === 'weapon') return WEAPONS[offer.id].name;
+  return `${WEAPONS[offer.id].name} ×${offer.rounds}`;
 }
 
 /**
@@ -63,33 +81,36 @@ export class PickupSystem {
   ) {}
 
   place(offer: PickupOffer, spot: Spot, permanent = false): void {
-    const spec = WEAPONS[offer.id];
+    const tint = tintOf(offer);
     const group = new Group();
 
     const pad = new Mesh(
       new CylinderGeometry(PICKUP_RADIUS, PICKUP_RADIUS, 0.08, 28),
-      new MeshBasicMaterial({ color: spec.tint, transparent: true, opacity: 0.16 }),
+      new MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.16 }),
     );
     pad.position.y = 0.05;
 
     const ring = new Mesh(
       new CylinderGeometry(PICKUP_RADIUS, PICKUP_RADIUS * 0.92, 0.5, 28, 1, true),
-      new MeshBasicMaterial({ color: spec.tint, transparent: true, opacity: 0.3, depthWrite: false }),
+      new MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.3, depthWrite: false }),
     );
     ring.position.y = 0.28;
 
-    // Ammo is a stubby crate of shells rather than the gun itself, so at a
-    // glance you can tell a weapon from a top-up.
-    const model = offer.kind === 'weapon' ? createWeaponModel(offer.id) : createAmmoModel(spec.tint);
-    model.position.y = offer.kind === 'weapon' ? 1.1 : 0.85;
+    // Three silhouettes, so what a pickup is reads before the label does: the
+    // gun itself, a stubby crate of shells, or a cross.
+    const model =
+      offer.kind === 'weapon'
+        ? createWeaponModel(offer.id)
+        : offer.kind === 'ammo'
+          ? createAmmoModel(tint)
+          : createHealthModel(tint);
+    const height = MODEL_HEIGHT[offer.kind];
+    model.position.y = height;
     model.scale.setScalar(offer.kind === 'weapon' ? 1.15 : 1);
 
     const label = new Sprite(
       new SpriteMaterial({
-        map: labelTexture(
-          offer.kind === 'weapon' ? spec.name : `${spec.name} ×${offer.rounds}`,
-          offer.kind,
-        ),
+        map: labelTexture(labelOf(offer), offer.kind),
         transparent: true,
         depthTest: false,
       }),
@@ -103,7 +124,7 @@ export class PickupSystem {
     this.scene.add(group);
 
     this.pickups.push({
-      ...offer,
+      offer,
       x: spot.x,
       z: spot.z,
       group,
@@ -141,10 +162,10 @@ export class PickupSystem {
 
       pickup.model.rotation.y = time * 1.2;
       pickup.model.position.y =
-        (pickup.kind === 'weapon' ? 1.1 : 0.85) + Math.sin(time * 2 + pickup.x) * 0.12;
+        MODEL_HEIGHT[pickup.offer.kind] + Math.sin(time * 2 + pickup.x) * 0.12;
 
       const inside = Math.hypot(playerX - pickup.x, playerZ - pickup.z) <= PICKUP_RADIUS;
-      if (inside && this.onCollect(pickup, !pickup.wasInside)) {
+      if (inside && this.onCollect(pickup.offer, !pickup.wasInside)) {
         pickup.taken = true;
       }
       pickup.wasInside = inside;
@@ -155,6 +176,34 @@ export class PickupSystem {
     this.scene.remove(this.pickups[index].group);
     this.pickups.splice(index, 1);
   }
+}
+
+/** How high above the pad each silhouette floats. */
+const MODEL_HEIGHT: Record<PickupKind, number> = { weapon: 1.1, ammo: 0.85, health: 0.9 };
+
+/** A cross on a dark case — the one pickup that has nothing to do with guns. */
+function createHealthModel(tint: number): Group {
+  const group = new Group();
+  const material = new MeshStandardMaterial({
+    color: tint,
+    emissive: tint,
+    emissiveIntensity: 0.55,
+    flatShading: true,
+  });
+  const bar = new BoxGeometry(0.52, 0.16, 0.16);
+  const stem = new BoxGeometry(0.16, 0.16, 0.52);
+  const across = new Mesh(bar, material);
+  const down = new Mesh(stem, material);
+
+  const shell = new Mesh(
+    new BoxGeometry(0.62, 0.34, 0.62),
+    new MeshStandardMaterial({ color: 0x121a21, roughness: 0.75, flatShading: true }),
+  );
+  shell.position.y = -0.12;
+  shell.castShadow = true;
+
+  group.add(shell, across, down);
+  return group;
 }
 
 function createAmmoModel(tint: number): Group {
@@ -197,7 +246,7 @@ function labelTexture(text: string, kind: PickupKind): CanvasTexture {
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,.95)';
   ctx.shadowBlur = 10;
-  ctx.fillStyle = kind === 'weapon' ? '#eaf6ff' : '#c3d3d0';
+  ctx.fillStyle = kind === 'weapon' ? '#eaf6ff' : kind === 'health' ? '#b6f5cd' : '#c3d3d0';
   ctx.fillText(text.toUpperCase(), canvas.width / 2, canvas.height / 2);
 
   const texture = new CanvasTexture(canvas);

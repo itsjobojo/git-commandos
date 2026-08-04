@@ -1,8 +1,12 @@
 /**
- * Seeded PRNG (mulberry32). The mission seed is derived from the commit
- * message, so the same commit always generates the same map, the same enemy
- * placement and the same AI-bro dialogue. Retries are fair and screenshots
- * are reproducible.
+ * Seeded PRNG (mulberry32). Every random thing in a run — the map, the enemy
+ * placement, the loot rolls, the AI-bro dialogue — comes from the mission seed
+ * through one of these, so a run is fully determined by its seed and can be
+ * replayed exactly from it.
+ *
+ * The seed itself is rolled fresh on each deploy rather than derived from the
+ * commit (see `freshSeed` in `game/mission.ts`), so reproducibility is a
+ * property of a *run*, not of a commit message.
  */
 export class Rng {
   private state: number;

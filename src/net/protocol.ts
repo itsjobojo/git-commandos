@@ -40,7 +40,18 @@ export interface Rules {
   stash: StashRule;
 }
 
-export const DEFAULT_RULES: Rules = { loss: 'unstage', death: 'cargo', stash: 'run' };
+/**
+ * `health` is the default rather than `cargo`.
+ *
+ * Under `cargo` you genuinely cannot die — hits only knock crates loose — and
+ * with nothing on your back nothing can happen to you at all. That reads as the
+ * enemies being broken rather than as a mercy. Keep it as an opt-in for a
+ * no-stakes run (`--death=cargo`); the default should be a game you can lose.
+ *
+ * Must stay in step with `RULE_OPTIONS.death.default` in `cli/rules.mjs` — the
+ * CLI decides the real rule, this is what standalone/sandbox runs use.
+ */
+export const DEFAULT_RULES: Rules = { loss: 'unstage', death: 'health', stash: 'run' };
 
 export interface GitContext {
   command: string;
@@ -62,11 +73,42 @@ export interface GitContext {
   abort: () => void;
 }
 
-export interface RunResult {
+/**
+ * What the run cost. The CLI stamps this into the commit message, so a commit
+ * carries the story of how it got made.
+ *
+ * Every field is a plain count the game already had to keep. Nothing here is
+ * allowed to influence what happens to a file — that is `CargoLedger`'s job
+ * alone, and this is a report, not an input.
+ */
+export interface RunStats {
+  /** Simulated seconds spent in play. Excludes the briefing and any pause. */
+  seconds: number;
+  /** Hits that actually landed. Shelter and dodge i-frames never count. */
+  hitsTaken: number;
+  /** Only meaningful under `death: 'health'`. */
+  hpRemaining: number;
+  hpMax: number;
+  kills: number;
+  /** Crates knocked loose and picked back up before they decayed. */
+  recovered: number;
+}
+
+/**
+ * Which of the user's files survived. The sole output of `CargoLedger`, and
+ * deliberately separate from `RunStats` — the ledger decides fates, it does not
+ * keep score, and nothing it returns should ever be mistaken for flavour.
+ */
+export interface CargoOutcome {
   surviving: string[];
   lost: string[];
   /** Only non-empty under `stash: 'persist'` — stays staged, never committed. */
   stashed: string[];
+}
+
+/** What goes on the wire: the fates, plus the story of how they were earned. */
+export interface RunResult extends CargoOutcome {
+  stats: RunStats;
 }
 
 const HANDSHAKE_TIMEOUT_MS = 2000;
@@ -136,6 +178,10 @@ export function connectGitContext(): Promise<GitContext | null> {
                 survivingFiles: result.surviving,
                 lostFiles: result.lost,
                 stashedFiles: result.stashed,
+                // A CLI that predates this ignores it; a CLI that expects it
+                // must cope with its absence, because an older build won't send
+                // it. Neither side may make a git decision out of it.
+                stats: result.stats,
               },
             }),
           );

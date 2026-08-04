@@ -75,3 +75,6 @@ export const MUSIC_FALLBACK: string | null = null;
  * wrong once bundled — `systems/music.ts` redirects it here.
  */
 export const CHIPTUNE_WORKLET = 'audio/chiptune3.worklet.js';
+
+/** The title lockup, shown on the briefing screen. Transparent PNG. */
+export const LOGO = 'gcms-logo.png';

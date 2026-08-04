@@ -8,18 +8,15 @@ import { CAST } from '../../render/cast';
 const DRIFT_SPEED = 2.1;
 const PREFERRED_RANGE = 13;
 /**
- * Fire rates are deliberately restrained. The first pass put ~27 invites a
- * second in the air with 4s lifetimes, which filled the screen and stopped
- * reading as individual dodgeable threats — a wall of noise is not a bullet
- * hell, it's a fog.
+ * Seconds between throws — the whole attack now, so far shorter than when this
+ * was the punctuation between volleys of fire.
  */
-const FAN_INTERVAL = 2.4;
-const FAN_COUNT = 7;
-const SPIRAL_INTERVAL = 0.24;
-const SPIRAL_ARMS = 2;
-const INVITE_LIFE = 2.6;
-/** Seconds between invite bombs. */
-const BOMB_INTERVAL: [number, number] = [6.5, 9.5];
+const THROW_INTERVAL: [number, number] = [2.4, 3.4];
+/** How many invites go out at once, before and after the series starts. */
+const VOLLEY = 1;
+const RECURRING_VOLLEY = 3;
+/** How far off you the extra invites in a volley land. */
+const SCATTER = 5.5;
 /** How far the invite reclines, so its face is readable from the game camera. */
 const BASE_LEAN = -0.5;
 
@@ -30,32 +27,35 @@ const BASE_LEAN = -0.5;
 const HOLD_HEIGHT = 3.2;
 
 /**
- * The Invite Swarm — mid-game mini-boss.
+ * The Outlook Invite Storm — mid-game mini-boss.
  *
  * Somebody is sending these. It walks the arena head and shoulders above
  * everything else, both arms locked overhead around a calendar invite, and
- * carpet-bombs you out of it. Individually each invite looks harmless;
- * collectively it's a bullet hell. Invites can be *declined* by shooting them,
- * and rolling through a fan declines everything it touches — that's the skill
- * expression.
+ * lobs them at your feet. Each one arcs, lands, sits there flashing, and opens
+ * a meeting over the whole screen when the fuse runs out.
  *
- * At half health it stops sending individual invites and starts one recurring
- * series: a spiral that doesn't stop until the boss is dead.
+ * It used to shoot them too — fans and spirals of homing invites, on top of the
+ * throwing. Two attacks made of the same object mostly obscured each other: the
+ * projectiles filled the air the ground markers needed to be read against, and
+ * the thing you were actually meant to fear was the one you could no longer
+ * see. Throwing alone gives the fight a shape you can read — the floor tells
+ * you where not to be, and it is always your own feet that put you there.
+ *
+ * At half health it stops sending single invites and starts a recurring series:
+ * three at once, scattered around you, until the boss is dead.
  *
  * It used to be the icon alone, floating and bodiless, which read as a logo
  * rather than an antagonist. The invite it holds is still an Outlook mark — see
  * the licence note in `render/invite.ts`, it is the one asset in the repository
  * that is not CC0.
  */
-export class InviteSwarm extends Enemy {
+export class InviteStorm extends Enemy {
   readonly group = new Group();
   hp = 26;
   maxHp = 26;
   radius = 1.5;
 
-  private fireTimer = 1.2;
-  private bombTimer = 3;
-  private spiralAngle = 0;
+  private throwTimer = 2;
   private bob = 0;
   /** The held invite, above the raised hands. */
   private readonly body = new Group();
@@ -66,7 +66,7 @@ export class InviteSwarm extends Enemy {
   constructor() {
     super(SENSE_PROFILES.boss);
 
-    this.rig = createHumanoid(CAST['invite-swarm'], (this.id * 2.399963) % (Math.PI * 2));
+    this.rig = createHumanoid(CAST['invite-storm'], (this.id * 2.399963) % (Math.PI * 2));
 
     const invite = createInviteMesh(1, 0.34);
     this.body.add(invite.group);
@@ -118,70 +118,36 @@ export class InviteSwarm extends Enemy {
     // worse than one with no legs at all.
     advanceGait(this.rig, dt, Math.hypot(this.x - this.px, this.z - this.pz) / dt);
 
-    // Bombs are the signature attack — the fans are just cover fire between
-    // them.
-    this.bombTimer -= dt;
-    if (this.bombTimer <= 0) {
-      // Lead the target slightly so standing still is the worst option.
-      ctx.throwBomb(this.x, this.z, ctx.bodyX, ctx.bodyZ);
-      this.bombTimer = ctx.rng.range(BOMB_INTERVAL[0], BOMB_INTERVAL[1]) * (this.recurring ? 0.6 : 1);
-    }
+    this.throwTimer -= dt;
+    if (this.throwTimer > 0) return;
+    this.throwVolley(ctx);
+    this.throwTimer =
+      ctx.rng.range(THROW_INTERVAL[0], THROW_INTERVAL[1]) * (this.recurring ? 0.62 : 1);
+  }
 
-    this.fireTimer -= dt;
-    if (this.fireTimer > 0) return;
-
-    if (this.recurring) {
-      this.fireSpiral(ctx);
-      this.fireTimer = SPIRAL_INTERVAL;
-    } else {
-      this.fireFan(ctx, dx / distance, dz / distance);
-      this.fireTimer = FAN_INTERVAL;
+  /**
+   * One invite at your feet, or three around them once the series starts.
+   *
+   * The first always lands on you, so standing still is never the answer; the
+   * rest are scattered, so neither is a short sidestep. Where they land is
+   * rolled rather than patterned — a fixed triangle around the player is a shape
+   * you learn once and then walk out of the same way every time.
+   */
+  private throwVolley(ctx: EnemyContext): void {
+    const count = this.recurring ? RECURRING_VOLLEY : VOLLEY;
+    for (let i = 0; i < count; i++) {
+      const offset = i === 0 ? 0 : ctx.rng.range(SCATTER * 0.5, SCATTER);
+      const angle = ctx.rng.range(0, Math.PI * 2);
+      ctx.throwBomb(
+        this.x,
+        this.z,
+        ctx.bodyX + Math.cos(angle) * offset,
+        ctx.bodyZ + Math.sin(angle) * offset,
+      );
     }
   }
 
-  /** A wall of invites you can dodge-roll through. */
-  private fireFan(ctx: EnemyContext, dirX: number, dirZ: number): void {
-    const base = Math.atan2(dirZ, dirX);
-    const spread = 0.8;
-    for (let i = 0; i < FAN_COUNT; i++) {
-      const angle = base + (i / (FAN_COUNT - 1) - 0.5) * spread;
-      ctx.fire({
-        x: this.x,
-        z: this.z,
-        dirX: Math.cos(angle),
-        dirZ: Math.sin(angle),
-        speed: 11,
-        damage: 1,
-        life: INVITE_LIFE,
-        radius: 0.28,
-        invite: true,
-        // Gentle enough that a dodge-roll still beats it — homing should make
-        // invites feel persistent, not inescapable.
-        homing: 1.1,
-      });
-    }
-  }
-
-  /** Phase 2. Subject line: "Recurring". It does not stop. */
-  private fireSpiral(ctx: EnemyContext): void {
-    this.spiralAngle += 0.7;
-    for (let arm = 0; arm < SPIRAL_ARMS; arm++) {
-      const angle = this.spiralAngle + (arm * Math.PI * 2) / SPIRAL_ARMS;
-      ctx.fire({
-        x: this.x,
-        z: this.z,
-        dirX: Math.cos(angle),
-        dirZ: Math.sin(angle),
-        speed: 9,
-        damage: 1,
-        life: INVITE_LIFE,
-        radius: 0.26,
-        invite: true,
-      });
-    }
-  }
-
-  syncSwarm(alpha: number): void {
+  syncStorm(alpha: number): void {
     super.syncObject(alpha, 0);
     // Back to the rig convention now that there is a body: authored facing +X,
     // so `-yaw`. The invite still has to face the player square-on — an upright

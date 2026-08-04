@@ -1,5 +1,7 @@
 import { BoxGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { Enemy, type EnemyContext } from './enemy';
+import { SENSE_PROFILES, type Awareness } from '../../systems/awareness';
+import { RECRUITER_HUNCHES, RECRUITER_OPENERS } from './recruiter-lines';
 import { SpeechBubble } from '../../render/bubble';
 import { advanceGait, createHumanoid, poseHumanoid, type Humanoid } from '../../render/humanoid';
 import { CAST } from '../../render/cast';
@@ -10,21 +12,18 @@ const REPOSITION_SPEED = 6.6;
 /** The band it wants to hold. Closer and it backs off, further and it closes. */
 const NEAR_RANGE = 9;
 const FAR_RANGE = 15;
+/**
+ * Inside this it stops shooting altogether and only retreats. Comfortably less
+ * than `NEAR_RANGE`, so it still trades across most of the band it wants to
+ * hold — this is the panic gap, not a second comfort zone.
+ */
+const PANIC_RANGE = 5.5;
 /** Below this much cargo, you are not worth approaching. */
 const INTEREST_THRESHOLD = 3;
 const SHOT_INTERVAL = 1.15;
 /** Shots fired before it breaks off to find cover. */
 const BURST_LENGTH = 3;
 const HIDE_SECONDS: [number, number] = [1.4, 2.6];
-
-const OPENERS = [
-  'quick question about your background',
-  'saw your profile — impressive stuff',
-  'are you open to new opportunities?',
-  'we move fast and the equity is generous',
-  'is now a bad time?',
-  "I think you'd be a great culture fit",
-];
 
 type Stance = 'idle' | 'engage' | 'hide';
 
@@ -47,6 +46,8 @@ export class Recruiter extends Enemy {
   radius = 0.5;
 
   private stance: Stance = 'idle';
+  /** Last awareness it commented on, so each transition is spoken once. */
+  private spoke: Awareness = 'unaware';
   private shotTimer = 0;
   private burst = 0;
   private hideTimer = 0;
@@ -61,7 +62,7 @@ export class Recruiter extends Enemy {
   private readonly rig: Humanoid;
 
   constructor() {
-    super();
+    super(SENSE_PROFILES.recruiter);
 
     // The right arm is frozen mid-call rather than swinging: it costs two
     // fewer draw calls than an articulated one and says more about the
@@ -97,17 +98,29 @@ export class Recruiter extends Enemy {
     this.shotTimer -= dt;
     this.strafeTimer -= dt;
 
+    // Two gates, and they mean different things. Carrying enough cargo is
+    // whether you are *worth* recruiting; having noticed you is whether it
+    // knows you are there. An empty-handed dev walking past a recruiter that
+    // can see them perfectly well is the joke, and it survives the stealth
+    // layer intact.
+    // Talk on the transition rather than on the stance change: the stance is
+    // gated on cargo too, so a recruiter that has clearly spotted you would
+    // otherwise stand there silently until you picked enough crates up.
+    if (this.sense.state !== this.spoke) {
+      if (this.sense.state === 'alerted') this.bubble.say(ctx.rng.pick(RECRUITER_OPENERS), 2.8);
+      else if (this.sense.state === 'suspicious') this.bubble.say(ctx.rng.pick(RECRUITER_HUNCHES), 2.2);
+      this.spoke = this.sense.state;
+    }
+
     const interested = ctx.playerCarrying >= INTEREST_THRESHOLD;
-    if (!interested) {
+    const noticed = this.sense.state !== 'unaware';
+    if (!interested || !noticed) {
       if (this.stance !== 'idle') this.stance = 'idle';
       this.drift(dt, ctx);
       return;
     }
 
-    if (this.stance === 'idle') {
-      this.stance = 'engage';
-      this.bubble.say(ctx.rng.pick(OPENERS), 2.8);
-    }
+    if (this.stance === 'idle') this.stance = 'engage';
 
     if (this.stance === 'hide') this.hide(dt, ctx);
     else this.engage(dt, ctx);
@@ -115,8 +128,14 @@ export class Recruiter extends Enemy {
 
   /** Hold the band, strafe across their aim, fire when there's a shot. */
   private engage(dt: number, ctx: EnemyContext): void {
-    const dx = ctx.playerX - this.x;
-    const dz = ctx.playerZ - this.z;
+    // Everything here works off the *believed* position. While it has eyes on
+    // you that is your real position; once you break sight it is where you were
+    // last seen, so it holds the band against a ghost and shoots at empty
+    // floor — which is the behaviour that makes breaking sight worth doing.
+    const targetX = this.sense.targetX;
+    const targetZ = this.sense.targetZ;
+    const dx = targetX - this.x;
+    const dz = targetZ - this.z;
     const distance = Math.hypot(dx, dz) || 1;
     const dirX = dx / distance;
     const dirZ = dz / distance;
@@ -125,7 +144,7 @@ export class Recruiter extends Enemy {
       // Too close — give ground rather than trade at knife range.
       this.moveToward(dt, ctx.grid, this.x - dirX * 8, this.z - dirZ * 8, REPOSITION_SPEED);
     } else if (distance > FAR_RANGE) {
-      this.moveToward(dt, ctx.grid, ctx.playerX, ctx.playerZ, REPOSITION_SPEED);
+      this.moveToward(dt, ctx.grid, targetX, targetZ, REPOSITION_SPEED);
     } else {
       // In the band: slide sideways so it's never a stationary target.
       if (this.strafeTimer <= 0) {
@@ -149,8 +168,19 @@ export class Recruiter extends Enemy {
     this.yaw = Math.atan2(dz, dx);
 
     if (this.shotTimer > 0) return;
-    if (!ctx.grid.hasClearShot(this.x, this.z, ctx.playerX, ctx.playerZ)) return;
+    // Aiming at the true position while blind would be a wallhack with extra
+    // steps: it would keep landing shots on a player it cannot see.
+    if (!ctx.grid.hasClearShot(this.x, this.z, targetX, targetZ)) return;
     if (distance > FAR_RANGE + 2) return;
+    // Pushed inside its band, it gives ground instead of shooting.
+    //
+    // It used to back off *and* keep firing, so closing the distance — the one
+    // counter to a ranged skirmisher — was punished rather than rewarded: at
+    // point blank you ate a round every SHOT_INTERVAL with nowhere to go, and
+    // each one costs a crate as well as health. Refusing the shot inside
+    // `PANIC_RANGE` is also just what the archetype says it does: it will not
+    // trade at knife range.
+    if (distance < PANIC_RANGE) return;
 
     ctx.fire({
       x: this.x,
@@ -195,8 +225,10 @@ export class Recruiter extends Enemy {
       const x = this.x + Math.cos(angle) * reach;
       const z = this.z + Math.sin(angle) * reach;
       if (ctx.grid.isSolidWorld(x, z)) continue;
-      if (ctx.grid.hasClearShot(x, z, ctx.playerX, ctx.playerZ)) continue;
-      const d = Math.hypot(x - ctx.playerX, z - ctx.playerZ);
+      // Cover from where it *thinks* you are. Ducking behind something relative
+      // to your true position would give away that it still knows.
+      if (ctx.grid.hasClearShot(x, z, this.sense.targetX, this.sense.targetZ)) continue;
+      const d = Math.hypot(x - this.sense.targetX, z - this.sense.targetZ);
       if (d < NEAR_RANGE - 2 || d > FAR_RANGE + 6) continue;
       return { x, z };
     }

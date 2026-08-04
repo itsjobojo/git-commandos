@@ -1,12 +1,24 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { unlinkSync } from 'node:fs';
+import { realGit } from './real-git.mjs';
 
-const run = (cmd) =>
-  execSync(cmd, { cwd: process.cwd(), encoding: 'utf-8' }).trim();
+/**
+ * Every git call goes through the resolved real binary, never the name `git`.
+ * Under the shim, a bare `git` on PATH is us — calling it here would recurse.
+ *
+ * Arguments go as an array, so a branch called `--force` or a path with a space
+ * is data rather than syntax.
+ */
+const git = (args, input) =>
+  execFileSync(realGit(), args, {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+    ...(input === undefined ? {} : { input }),
+  }).trim();
 
 export function isInsideGitRepo() {
   try {
-    run('git rev-parse --is-inside-work-tree');
+    git(['rev-parse', '--is-inside-work-tree']);
     return true;
   } catch {
     return false;
@@ -14,12 +26,12 @@ export function isInsideGitRepo() {
 }
 
 export function getStagedFiles() {
-  const out = run('git diff --cached --name-only');
+  const out = git(['diff', '--cached', '--name-only']);
   return out ? out.split('\n') : [];
 }
 
 export function getStagedDiffStats() {
-  const out = run('git diff --cached --numstat');
+  const out = git(['diff', '--cached', '--numstat']);
   if (!out) return { files: [], totalAdded: 0, totalRemoved: 0 };
   const files = [];
   let totalAdded = 0;
@@ -36,22 +48,49 @@ export function getStagedDiffStats() {
 }
 
 export function getBranch() {
-  return run('git branch --show-current') || 'HEAD';
+  return git(['branch', '--show-current']) || 'HEAD';
 }
 
 export function getRemotes() {
-  const out = run('git remote');
+  const out = git(['remote']);
   return out ? out.split('\n') : [];
 }
 
-export function commitFiles(message) {
-  run(`git commit -m ${JSON.stringify(message)}`);
+/** Stage tracked files that have changed — what `git commit -a` does first. */
+export function stageTrackedChanges() {
+  git(['add', '-u']);
+}
+
+export function getGitDir() {
+  return git(['rev-parse', '--absolute-git-dir']);
+}
+
+export function getConfig(key) {
+  try {
+    return git(['config', '--get', key]) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hand git a commit message on stdin rather than through `-m`.
+ *
+ * A message that has grown a multi-line footer cannot go through the shell:
+ * `JSON.stringify` turns its newlines into a literal backslash-n, which git
+ * dutifully commits as the characters `\n`. `-F -` sidesteps quoting entirely.
+ *
+ * @param {string} message
+ * @param {string[]} extraArgs flags the user passed that we forward verbatim
+ */
+export function commitFiles(message, extraArgs = []) {
+  git(['commit', ...extraArgs, '-F', '-'], message);
 }
 
 export function stageFiles(files) {
   for (const f of files) {
     try {
-      run(`git add -- ${JSON.stringify(f)}`);
+      git(['add', '--', f]);
     } catch {
       // file may have been deleted; nothing to re-stage
     }
@@ -61,10 +100,19 @@ export function stageFiles(files) {
 export function unstageFiles(files) {
   for (const f of files) {
     try {
-      run(`git reset HEAD -- ${JSON.stringify(f)}`);
+      git(['reset', 'HEAD', '--', f]);
     } catch {
       // file may already be unstaged
     }
+  }
+}
+
+/** Drop a path from the index without touching the working tree. */
+export function removeFromIndex(path) {
+  try {
+    git(['rm', '-r', '--cached', '--', path]);
+  } catch {
+    // never staged in the first place
   }
 }
 
@@ -79,24 +127,24 @@ export function deleteFiles(files) {
 }
 
 export function getCurrentBranch() {
-  return run('git branch --show-current') || 'HEAD';
+  return git(['branch', '--show-current']) || 'HEAD';
 }
 
 export function getUpstream() {
   try {
-    return run('git rev-parse --abbrev-ref @{u}');
+    return git(['rev-parse', '--abbrev-ref', '@{u}']);
   } catch {
     return null;
   }
 }
 
 export function getAheadCommits(upstream) {
-  const out = run(`git log ${upstream}..HEAD --format=%s`);
+  const out = git(['log', `${upstream}..HEAD`, '--format=%s']);
   return out ? out.split('\n').filter(Boolean) : [];
 }
 
 export function getAheadDiffStats(upstream) {
-  const out = run(`git diff ${upstream}..HEAD --numstat`);
+  const out = git(['diff', `${upstream}..HEAD`, '--numstat']);
   if (!out) return { files: [], totalAdded: 0 };
   const files = [];
   let totalAdded = 0;
@@ -109,13 +157,12 @@ export function getAheadDiffStats(upstream) {
   return { files, totalAdded };
 }
 
-export function pushBranch(remote, branch, force = false) {
-  const forceFlag = force ? ' --force-with-lease' : '';
-  run(`git push ${remote} ${branch}${forceFlag}`);
+export function pushBranch(remote, branch, force = false, extraArgs = []) {
+  git(['push', ...extraArgs, ...(force ? ['--force-with-lease'] : []), remote, branch]);
 }
 
 export function getMergeDiffStats(branch) {
-  const out = run(`git diff HEAD...${branch} --numstat`);
+  const out = git(['diff', `HEAD...${branch}`, '--numstat']);
   if (!out) return { files: [], totalAdded: 0 };
   const files = [];
   let totalAdded = 0;
@@ -129,14 +176,26 @@ export function getMergeDiffStats(branch) {
 }
 
 export function mergeBranch(branch, message) {
-  const msgFlag = message ? ` -m ${JSON.stringify(message)}` : '';
-  run(`git merge --no-ff ${branch}${msgFlag}`);
+  if (!message) {
+    git(['merge', '--no-ff', branch]);
+    return;
+  }
+  git(['merge', '--no-ff', '-F', '-', branch], message);
 }
 
 export function abortMerge() {
-  try { run('git merge --abort'); } catch {}
+  try { git(['merge', '--abort']); } catch {}
 }
 
 export function hardReset(ref) {
-  run(`git reset --hard ${ref}`);
+  git(['reset', '--hard', ref]);
+}
+
+/** Staged files, in git's own words, for the commit message template. */
+export function getStatusForTemplate() {
+  try {
+    return git(['status', '--branch', '--untracked-files=no']);
+  } catch {
+    return '';
+  }
 }

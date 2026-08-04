@@ -4,16 +4,39 @@ import { launchGame } from '../server.mjs';
 export const description = 'Merge a branch — but you must survive for the merge to land';
 export const usage = 'gcmds merge <branch> [-m "message"] [--extreme]';
 
-export async function run(args, flags) {
-  const branchArg = args.find((a) => !a.startsWith('-'));
-  if (!branchArg) {
-    console.error('  Error: merge requires a branch name.');
-    console.error('  Usage: gcmds merge <branch>');
-    process.exit(1);
-  }
+/**
+ * Only a single-branch merge is a mission. Resuming or unwinding one in
+ * progress (`--abort`, `--continue`) is git's, and an octopus merge has no
+ * story the game can tell.
+ */
+const NOT_OURS = ['--abort', '--continue', '--quit', '--squash', '--ff-only', '-e', '--edit'];
 
-  const mIdx = args.indexOf('-m');
-  const mergeMessage = mIdx !== -1 && mIdx + 1 < args.length ? args[mIdx + 1] : null;
+/**
+ * Split merge arguments into the branch to merge and the message, keeping the
+ * message's value from being mistaken for a second branch.
+ * @returns {{ message: string|null, branches: string[] }}
+ */
+export function parseMergeArgs(args) {
+  let message = null;
+  const branches = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '-m' || arg === '--message') message = args[++i] ?? null;
+    else if (arg.startsWith('--message=')) message = arg.slice('--message='.length);
+    else if (!arg.startsWith('-')) branches.push(arg);
+  }
+  return { message, branches };
+}
+
+/** @param {string[]} args */
+export function supports(args) {
+  if (parseMergeArgs(args).branches.length !== 1) return false;
+  return !args.some((a) => NOT_OURS.includes(a.split('=')[0]) || a === '--');
+}
+
+export async function run(args, flags) {
+  const { message: mergeMessage, branches } = parseMergeArgs(args);
+  const branchArg = branches[0];
 
   const currentBranch = getCurrentBranch();
   const stats = getMergeDiffStats(branchArg);

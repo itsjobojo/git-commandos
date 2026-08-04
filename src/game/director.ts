@@ -1,7 +1,7 @@
 import type { Scene } from 'three';
 import { AiBro } from '../entities/enemies/ai-bro';
 import { MeetingOrganizer } from '../entities/enemies/meeting-organizer';
-import { InviteSwarm } from '../entities/enemies/invite-swarm';
+import { InviteStorm } from '../entities/enemies/invite-storm';
 import { Recruiter } from '../entities/enemies/recruiter';
 import { Intern } from '../entities/enemies/intern';
 import type { CombatSystem } from '../systems/combat';
@@ -17,11 +17,17 @@ const MIN_SPAWN_DISTANCE = 22;
  */
 const MAX_LIVE_ENEMIES = 10;
 /**
- * Rushers are parked for now. The Intern class stays — it's the counterpart to
- * the Recruiter and worth having — but with everything else on the map at once
- * the pincer read as noise rather than pressure.
+ * Rushers are back on.
+ *
+ * They were parked because an omniscient beeline rusher is undodgeable: it
+ * spawns knowing where you are and walks at you until one of you is dead, which
+ * reads as noise rather than pressure. Awareness is the fix rather than a
+ * workaround for it — an Intern now idles until it actually sees you and then
+ * commits totally, so the pack is something you can avoid, bait, or walk into.
+ * They are also what keeps a light-cargo run from being empty, since the
+ * Recruiter still wants three crates before it is interested.
  */
-const SPAWN_INTERNS = false;
+const SPAWN_INTERNS = true;
 /**
  * Quiet window after a big event. Constant pressure flattens into background
  * noise; the threat only lands if there's a lull to break.
@@ -38,6 +44,8 @@ const GRACE_SECONDS = 10;
 const RAMP_SECONDS = 55;
 /** Hard ceiling per run — see updateStampede. */
 const MAX_STAMPEDES = 2;
+/** How long a completely undetected player gets before the map leans in. */
+const UNDETECTED_PATIENCE = 25;
 
 export interface DirectorEvents {
   /** A named thing is arriving and the player should be told about it. */
@@ -65,7 +73,7 @@ export class Director {
   private recruiterTimer = 11;
   private internTimer = 16;
   private organizerSpawned = false;
-  private swarmSpawned = false;
+  private stormSpawned = false;
   private stampedesReleased = 0;
   private midRunStampedeDone = false;
   private extractionStampedeDone = false;
@@ -73,6 +81,8 @@ export class Director {
   private stampedeTimer = 52;
   private quietUntil = 0;
   private elapsed = 0;
+  /** Seconds since anything on the map last knew where the player was. */
+  private undetectedFor = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -85,7 +95,18 @@ export class Director {
     /** Scales with the diff — a bigger commit is a busier map. */
     private readonly intensity: number,
     private readonly events: DirectorEvents = {},
-  ) {}
+  ) {
+    // Arc length at each waypoint, so "thirty metres further along the route"
+    // is a lookup rather than a walk.
+    let total = 0;
+    this.routeArc = this.route.map((point, i) => {
+      if (i > 0) total += Math.hypot(point.x - this.route[i - 1].x, point.z - this.route[i - 1].z);
+      return total;
+    });
+  }
+
+  /** Cumulative distance along `route`, one entry per waypoint. */
+  private readonly routeArc: number[];
 
   /** True while the map is deliberately quiet after a big moment. */
   private get lulling(): boolean {
@@ -103,19 +124,45 @@ export class Director {
 
   update(dt: number, ctx: DirectorContext): void {
     this.elapsed += dt;
+    this.updatePressure(dt, ctx);
 
     this.updateRecruiters(dt, ctx);
     if (SPAWN_INTERNS) this.updateInterns(dt, ctx);
     this.updateOrganizer(ctx);
-    this.updateInviteSwarm(ctx);
+    this.updateInviteStorm(ctx);
     this.updateStampede(dt, ctx);
-    this.updateScheduledMeetings(ctx);
+    this.updateScheduledMeetings();
+  }
+
+  /**
+   * Escalate when nothing has noticed you for a long time.
+   *
+   * Stealth cuts both ways: successfully avoiding everything also makes the run
+   * *longer*, and a map where the player is doing well is exactly the map the
+   * director stops contributing to — every enemy it spawns lands 22 units away,
+   * unaware, and quietly retires. Undetected is meant to be a tense way to
+   * play, not a way to switch the game off, so a long silence pulls the next
+   * wave in sooner instead of rewarding waiting.
+   */
+  private updatePressure(dt: number, ctx: DirectorContext): void {
+    if (this.combat.engagedEnemies > 0) {
+      this.undetectedFor = 0;
+      return;
+    }
+    this.undetectedFor += dt;
+    if (this.undetectedFor < UNDETECTED_PATIENCE) return;
+    this.undetectedFor = 0;
+    // Only if they are actually hauling something. Sneaking out empty-handed
+    // has already cost them the commit; there is nothing to punish.
+    if (ctx.carrying <= 0) return;
+    this.recruiterTimer = Math.min(this.recruiterTimer, 2);
+    this.internTimer = Math.min(this.internTimer, 3);
   }
 
   private updateRecruiters(dt: number, ctx: DirectorContext): void {
     this.recruiterTimer -= dt;
     if (this.recruiterTimer > 0 || this.lulling) return;
-    if (this.combat.liveEnemies >= MAX_LIVE_ENEMIES) return;
+    if (this.combat.engagedEnemies >= MAX_LIVE_ENEMIES) return;
 
     const recruiter = new Recruiter();
     const spot = this.spawnPoint(ctx);
@@ -134,7 +181,7 @@ export class Director {
   private updateInterns(dt: number, ctx: DirectorContext): void {
     this.internTimer -= dt;
     if (this.internTimer > 0 || this.lulling) return;
-    if (this.combat.liveEnemies >= MAX_LIVE_ENEMIES) return;
+    if (this.combat.engagedEnemies >= MAX_LIVE_ENEMIES) return;
 
     const packSize = 2 + this.rng.int(0, 2 + Math.round(this.intensity * 2));
     const anchor = this.spawnPoint(ctx);
@@ -159,15 +206,15 @@ export class Director {
   }
 
   /** Mid-game: once you're actually committed to the haul. */
-  private updateInviteSwarm(ctx: DirectorContext): void {
-    if (this.swarmSpawned) return;
+  private updateInviteStorm(ctx: DirectorContext): void {
+    if (this.stormSpawned) return;
     if (this.elapsed < 72) return;
-    this.swarmSpawned = true;
-    const boss = new InviteSwarm();
+    this.stormSpawned = true;
+    const boss = new InviteStorm();
     const spot = this.spawnPoint(ctx);
     boss.setPosition(spot.x, spot.z);
     this.combat.add(boss, this.scene);
-    this.events.onEvent?.('THE INVITE SWARM', 'decline everything', 'bad');
+    this.events.onEvent?.('OUTLOOK INVITE STORM', 'decline everything', 'bad');
     this.quietUntil = this.elapsed + LULL_SECONDS;
   }
 
@@ -256,17 +303,26 @@ export class Director {
     return { x, z };
   }
 
-  /** Organizers ask; the director places, because it owns the meeting system. */
-  private updateScheduledMeetings(ctx: DirectorContext): void {
+  /**
+   * Organizers ask; the director places, because it owns the meeting system.
+   *
+   * Takes no player position any more — every meeting is placed relative to
+   * what an organizer actually saw.
+   */
+  private updateScheduledMeetings(): void {
     for (const enemy of this.combat.enemies) {
       if (!(enemy instanceof MeetingOrganizer) || enemy.dying) continue;
       if (!enemy.wantsToSchedule()) continue;
 
       const mandatory = this.rng.next() < 0.55;
       // Mandatory meetings land on you; optional ones are placed just ahead,
-      // on the route you were probably about to take.
-      const x = mandatory ? ctx.playerX : ctx.playerX + this.rng.range(-14, 14);
-      const z = mandatory ? ctx.playerZ : ctx.playerZ + this.rng.range(-14, 14);
+      // on the route you were probably about to take. "On you" now means where
+      // the organizer last *saw* you — break its line of sight and the meeting
+      // lands on the spot you already left.
+      const seenX = enemy.believedX;
+      const seenZ = enemy.believedZ;
+      const x = mandatory ? seenX : seenX + this.rng.range(-14, 14);
+      const z = mandatory ? seenZ : seenZ + this.rng.range(-14, 14);
       if (!this.grid.isSolidWorld(x, z)) {
         const meeting = this.meetings.schedule(this.rng, mandatory ? 'mandatory' : 'avoid', x, z);
         if (meeting) {
@@ -281,8 +337,28 @@ export class Director {
     }
   }
 
-  /** A point out of sight and out of reach, so nothing spawns on your head. */
+  /**
+   * Somewhere the player is going to walk into.
+   *
+   * Spawning on a ring around the player only ever asked whether the cell was
+   * solid, which is a much weaker question than it looks on a map that is
+   * mostly rock: a spot twenty-five metres away can be a room on the far side
+   * of a wall, or a dead end the route never visits. Enemies placed there are
+   * enemies the player walks past without ever meeting, and the map reads as
+   * emptier than the spawn budget says it is.
+   *
+   * So the route decides. Most spawns land ahead of the player along it, which
+   * is carved ground they are by definition on their way through; some land
+   * behind, so the pressure is not always from one direction. The ring is kept
+   * only for the case where neither works — near the pad, there is no "ahead"
+   * left.
+   */
   private spawnPoint(ctx: DirectorContext): { x: number; z: number } {
+    const forward = this.rng.next() < 0.75;
+    const onRoute =
+      this.routeSpawn(ctx, forward) ?? this.routeSpawn(ctx, !forward);
+    if (onRoute) return onRoute;
+
     for (let attempt = 0; attempt < 30; attempt++) {
       const angle = this.rng.range(0, Math.PI * 2);
       const distance = MIN_SPAWN_DISTANCE + this.rng.range(0, 12);
@@ -293,4 +369,75 @@ export class Director {
     // Fall back to anywhere open rather than giving up on the spawn.
     return { x: ctx.playerX + MIN_SPAWN_DISTANCE, z: ctx.playerZ };
   }
+
+  /**
+   * A point further along the route than the player, in world units clear of
+   * them.
+   *
+   * The straight-line check is not redundant with the distance walked: the
+   * route doubles back on itself, so thirty metres of corridor can leave you
+   * eight metres away as the crow flies — which is a spawn in the player's lap.
+   */
+  private routeSpawn(ctx: DirectorContext, forward: boolean): { x: number; z: number } | null {
+    if (this.route.length < 2) return null;
+    const from = this.arcOf(ctx.playerX, ctx.playerZ);
+
+    for (let walked = MIN_SPAWN_DISTANCE; walked <= MIN_SPAWN_DISTANCE + 44; walked += 3) {
+      const point = this.pointAtArc(from + (forward ? walked : -walked));
+      if (!point) return null;
+      if (Math.hypot(point.x - ctx.playerX, point.z - ctx.playerZ) < MIN_SPAWN_DISTANCE) continue;
+
+      const spot = this.openNear(point.x, point.z, 5);
+      if (this.grid.isSolidWorld(spot.x, spot.z)) continue;
+      // Re-check after the jitter, not before: scattering five metres off the
+      // centreline can hand back most of the standoff the walk just bought.
+      if (Math.hypot(spot.x - ctx.playerX, spot.z - ctx.playerZ) < MIN_SPAWN_DISTANCE) continue;
+      return spot;
+    }
+    return null;
+  }
+
+  /** How far along the route the nearest point to (x, z) sits. */
+  private arcOf(x: number, z: number): number {
+    let best = 0;
+    let bestDistance = Infinity;
+
+    for (let i = 0; i < this.route.length - 1; i++) {
+      const a = this.route[i];
+      const b = this.route[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const lengthSq = dx * dx + dz * dz;
+      const t = lengthSq === 0 ? 0 : clamp01(((x - a.x) * dx + (z - a.z) * dz) / lengthSq);
+      const distance = Math.hypot(a.x + dx * t - x, a.z + dz * t - z);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = this.routeArc[i] + t * Math.sqrt(lengthSq);
+      }
+    }
+    return best;
+  }
+
+  /** The point `arc` units along the route, or null if that is off either end. */
+  private pointAtArc(arc: number): { x: number; z: number } | null {
+    const total = this.routeArc[this.routeArc.length - 1];
+    // Stop short of the pad. A spawn on the extraction point itself lands on
+    // top of whoever is standing there holding it.
+    if (arc < 0 || arc > total - MIN_SPAWN_DISTANCE * 0.5) return null;
+
+    for (let i = 0; i < this.route.length - 1; i++) {
+      if (arc > this.routeArc[i + 1]) continue;
+      const legLength = this.routeArc[i + 1] - this.routeArc[i];
+      const t = legLength === 0 ? 0 : (arc - this.routeArc[i]) / legLength;
+      return {
+        x: this.route[i].x + (this.route[i + 1].x - this.route[i].x) * t,
+        z: this.route[i].z + (this.route[i + 1].z - this.route[i].z) * t,
+      };
+    }
+    return null;
+  }
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
 }

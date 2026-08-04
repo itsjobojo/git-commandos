@@ -1,43 +1,60 @@
 #!/usr/bin/env node
 
-import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isInsideGitRepo } from './git-ops.mjs';
 import { RULE_OPTIONS } from './rules.mjs';
+import { classify, parseFlags } from './dispatch.mjs';
+import { passThrough } from './passthrough.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const COMMANDS_DIR = join(__dirname, 'commands');
 
-const args = process.argv.slice(2);
+/**
+ * Flags this tool consumes. Everything else on the command line is left in
+ * place so a gated command can forward it to git (`--no-verify`, `--signoff`).
+ */
+const GCMDS_FLAGS = [
+  'extreme', 'no-music', 'no-trailer', 'help',
+  ...Object.keys(RULE_OPTIONS),
+  'count', 'duration', 'clean', 'dir',
+];
 
-// Parse global flags. Supports bare `--flag` and `--flag=value`; camelCases
-// the key so `--no-music` reads as `flags.noMusic`.
-const flags = {};
-for (const arg of args) {
-  if (!arg.startsWith('--')) continue;
-  const eq = arg.indexOf('=');
-  const rawKey = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
-  const key = rawKey.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-  flags[key] = eq === -1 ? true : arg.slice(eq + 1);
+const argv = process.argv.slice(2);
+
+/**
+ * True when we are standing in for git — installed as `git` on PATH via
+ * `gcmds shim install`. In that mode even bare `git` and `git --help` belong to
+ * git; we only ever step in front of the handful of commands we gate.
+ */
+const gitMode =
+  process.env.GCMDS_GIT_MODE === '1' ||
+  ['git', 'git.exe'].includes(basename(process.argv[1] || '').toLowerCase());
+
+function commandNames() {
+  return readdirSync(COMMANDS_DIR)
+    .filter((f) => f.endsWith('.mjs') && !f.startsWith('_') && !f.endsWith('.test.mjs'))
+    .map((f) => f.replace('.mjs', ''));
 }
-flags.help ||= args.includes('-h');
-const filteredArgs = args.filter((a) => !a.startsWith('--'));
 
-const subcommand = filteredArgs[0];
-const subArgs = filteredArgs.slice(1);
+function version() {
+  try {
+    return JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')).version;
+  } catch {
+    return 'unknown';
+  }
+}
 
 async function listCommands() {
-  const files = readdirSync(COMMANDS_DIR).filter(
-    (f) => f.endsWith('.mjs') && !f.startsWith('_')
-  );
   console.log('\n  Git Commandos — git, but you have to earn it.\n');
   console.log('  Usage: gcmds <command> [options]\n');
+  console.log('  Any command not listed below is handed to the real git untouched,');
+  console.log('  so gcmds can stand in for git wherever you already use it.\n');
   console.log('  Commands:');
-  for (const file of files) {
-    const name = file.replace('.mjs', '');
+  for (const name of commandNames()) {
     try {
-      const mod = await import(join(COMMANDS_DIR, file));
+      const mod = await import(join(COMMANDS_DIR, `${name}.mjs`));
       console.log(`    ${name.padEnd(12)} ${mod.description || ''}`);
     } catch {
       console.log(`    ${name}`);
@@ -46,6 +63,7 @@ async function listCommands() {
   console.log('\n  Flags:');
   console.log('    --extreme          Lost files are DELETED from disk (not just unstaged)');
   console.log('    --no-music         Disable in-game music');
+  console.log('    --no-trailer       Do not stamp the run report into the commit message');
   console.log('    --help             Show this help');
   console.log('\n  Mission rules:');
   for (const [axis, spec] of Object.entries(RULE_OPTIONS)) {
@@ -57,29 +75,50 @@ async function listCommands() {
   console.log('');
 }
 
+/**
+ * Hand the invocation back to git, saying so first when someone is watching.
+ * The note matters: typing `git commit --amend` under the shim and getting a
+ * plain commit should not look like the game silently declined to run.
+ */
+function decline(reason) {
+  if (process.stderr.isTTY) console.error(`  ${reason} — running real git.`);
+  passThrough(argv);
+}
+
 async function main() {
-  if (!subcommand || flags.help) {
+  const dispatch = classify(argv, { commands: commandNames(), gitMode });
+
+  if (dispatch.kind === 'help') {
     await listCommands();
     process.exit(0);
   }
+  if (dispatch.kind === 'version') {
+    console.log(`git-commandos ${version()}`);
+    process.exit(0);
+  }
+  if (dispatch.kind === 'passthrough') passThrough(argv);
 
-  if (!isInsideGitRepo()) {
+  const command = await import(join(COMMANDS_DIR, `${dispatch.command}.mjs`));
+  const { flags, args } = parseFlags(dispatch.args, GCMDS_FLAGS);
+
+  if (flags.help || args.includes('-h')) {
+    console.log(`\n  ${command.description || dispatch.command}`);
+    console.log(`  Usage: ${command.usage || `gcmds ${dispatch.command}`}\n`);
+    process.exit(0);
+  }
+
+  // A gated command only claims the shapes it fully understands. `git commit
+  // --amend`, `git merge --abort`, `git push --delete` and friends are git's.
+  if (command.supports && !command.supports(args)) {
+    decline(`"git ${[dispatch.command, ...args].join(' ')}" is not something the game gates`);
+  }
+
+  if (command.requiresRepo !== false && !isInsideGitRepo()) {
     console.error('  Error: not inside a git repository.');
     process.exit(1);
   }
 
-  let command;
-  try {
-    command = await import(join(COMMANDS_DIR, `${subcommand}.mjs`));
-  } catch (err) {
-    if (err.code === 'ERR_MODULE_NOT_FOUND') {
-      console.error(`  Unknown command: "${subcommand}". Run "gcmds --help" for available commands.`);
-      process.exit(1);
-    }
-    throw err;
-  }
-
-  await command.run(subArgs, flags);
+  await command.run(args, flags);
 }
 
 main().catch((err) => {

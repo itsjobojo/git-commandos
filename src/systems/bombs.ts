@@ -2,7 +2,16 @@ import { Group, Mesh, MeshBasicMaterial, RingGeometry, Scene } from 'three';
 import { PALETTE } from '../render/palette';
 import { createInviteMesh } from '../render/invite';
 
-const FUSE_SECONDS = 2.2;
+/**
+ * How long a landed invite sits before it opens.
+ *
+ * Short, because throwing is the whole of the Invite Storm's attack now rather
+ * than punctuation between volleys of fire. At 2.2s a marker appeared, you
+ * walked out of it at a stroll, and the boss spent most of the fight failing to
+ * threaten anything. Here you have to move as soon as you see the ring, and
+ * with three landing at once you have to pick which way — which is the fight.
+ */
+const FUSE_SECONDS = 1.15;
 const ARC_HEIGHT = 7;
 /**
  * Blast radius — and exactly what the ground marker draws.
@@ -30,10 +39,10 @@ interface Bomb {
 /**
  * Invite bombs.
  *
- * The invite swarm lobs these at your feet. They arc, land, and telegraph on a
- * fuse with a ground marker, and when one goes off it opens a meeting invite
- * over the whole screen. The arc and the fuse exist so it's dodgeable in
- * principle and always your fault in practice.
+ * The Outlook Invite Storm lobs these at your feet — its entire attack. They
+ * arc, land, and telegraph on a fuse with a ground marker, and when one goes
+ * off it opens a meeting invite over the whole screen. The arc and the fuse
+ * exist so it's dodgeable in principle and always your fault in practice.
  */
 export class BombSystem {
   private readonly bombs: Bomb[] = [];
@@ -75,8 +84,10 @@ export class BombSystem {
       toX,
       toZ,
       t: 0,
-      // Longer throws hang longer, so the arc reads as a real lob.
-      flight: Math.max(0.5, Math.min(1.6, distance / 14)),
+      // Longer throws hang longer, so the arc still reads as a real lob — but
+      // flatter and quicker than it was. Hang time is dead time on the only
+      // attack the boss has.
+      flight: Math.max(0.38, Math.min(1.0, distance / 20)),
       fuse: FUSE_SECONDS,
       landed: false,
       group,

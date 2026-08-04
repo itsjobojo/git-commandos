@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { removeFromIndex, stageFiles } from '../git-ops.mjs';
 
 export const description = 'Create fake staged files for testing';
 export const usage = 'gcmds fake-files [--count=N] [--clean]';
@@ -20,9 +20,7 @@ export async function run(args, flags) {
 
   // Clean up previously created fake files
   if (existsSync(FAKE_DIR)) {
-    try {
-      execSync(`git rm -r --cached ${FAKE_DIR} 2>/dev/null || true`, { stdio: 'pipe' });
-    } catch {}
+    removeFromIndex(FAKE_DIR);
     rmSync(FAKE_DIR, { recursive: true, force: true });
     if (cleanFlag) {
       console.log(`  Cleaned up ${FAKE_DIR}`);
@@ -45,7 +43,7 @@ export async function run(args, flags) {
     writeFileSync(join(FAKE_DIR, name), content);
   }
 
-  execSync(`git add ${FAKE_DIR}`, { stdio: 'inherit' });
+  stageFiles([FAKE_DIR]);
 
   console.log(`  Created and staged ${n} fake file(s) in ${FAKE_DIR}/:`);
   for (const f of files) console.log(`    ${FAKE_DIR}/${f}`);
