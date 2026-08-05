@@ -18,10 +18,12 @@ interface Control {
  * wall of text to start a game: they press the green button, and everything
  * they skipped may as well not have been written.
  *
- * So it is one line for the mission, one line for the stakes, and the cargo as
- * bare filenames. Anything that is mechanics rather than stakes moved to the
- * controls page — one keypress away, and where somebody who actually wants the
- * detail goes looking for it.
+ * So the screen reads like a dossier, not prose: labeled stat rows instead of
+ * sentences, and the cargo as a manifest table — one row per file, the same
+ * +/- a `git status` would show, because that is the one number a caller
+ * cares about knowing before they mash Deploy. Anything that is mechanics
+ * rather than stakes moved to the controls page — one keypress away, and
+ * where somebody who actually wants the detail goes looking for it.
  */
 export function showBriefing(root: HTMLElement, mission: Mission): Promise<void> {
   const screen = el('div', CSS.fullscreen);
@@ -31,7 +33,7 @@ export function showBriefing(root: HTMLElement, mission: Mission): Promise<void>
   logo.src = LOGO;
   logo.alt = 'Git Commandos';
   logo.style.cssText = `
-    display:block; width:min(300px, 58%); height:auto; margin:2px auto 14px;
+    display:block; width:min(240px, 48%); height:auto; margin:0 auto 10px;
     filter:drop-shadow(0 6px 18px rgba(0,0,0,.55));
   `;
   panel.appendChild(logo);
@@ -41,48 +43,31 @@ export function showBriefing(root: HTMLElement, mission: Mission): Promise<void>
   panel.appendChild(
     el(
       'div',
-      'font-size:19px; line-height:1.3; color:#e6f1ee; word-break:break-word;',
+      'font-size:18px; line-height:1.3; color:#e6f1ee; word-break:break-word;',
       mission.commitMessage || '(no message)',
     ),
   );
 
-  const files = mission.files.length;
   panel.appendChild(
     el(
       'div',
-      'color:#5c7180; font-size:12px; margin-top:5px;',
-      [
-        mission.sandbox ? 'sandbox' : `gcmds ${mission.command}`,
-        mission.branch,
-        `${files} file${files === 1 ? '' : 's'}`,
-        `+${mission.linesAdded}`,
-      ].join('  ·  '),
+      'color:#5c7180; font-size:11px; margin-top:4px; letter-spacing:.03em;',
+      [mission.sandbox ? 'sandbox' : `gcmds ${mission.command}`, mission.branch].join('  ·  '),
     ),
   );
 
   panel.appendChild(el('div', CSS.rule));
 
-  // The order, in one sentence.
   panel.appendChild(
     el(
       'div',
-      'color:#c3d3d0; font-size:14px; line-height:1.5;',
-      `Extract ${files === 1 ? 'the file' : `all ${files} files`} from the wilderness of vibe ` +
-        `coding to the commit tube, and hold it for ${mission.holdSeconds.toFixed(1)}s.`,
+      'color:#7dd3fc; font-size:14px; letter-spacing:.04em; text-transform:uppercase;',
+      `Extract cargo  →  hold pad ${mission.holdSeconds.toFixed(1)}s`,
     ),
   );
 
-  // The cargo, as names alone. Full paths and line counts made a table; what
-  // matters standing here is which of your files are riding on this, and the
-  // HUD names them the same way once the run starts.
-  panel.appendChild(
-    el(
-      'div',
-      `color:#4ade80; font-size:12px; line-height:1.9; margin-top:8px;
-       max-height:72px; overflow-y:auto;`,
-      mission.files.map((file) => basename(file.name)).join('   ·   '),
-    ),
-  );
+  panel.appendChild(el('div', 'height:12px;'));
+  panel.appendChild(manifest(mission));
 
   panel.appendChild(el('div', CSS.rule));
   panel.appendChild(stakes(mission));
@@ -138,6 +123,73 @@ export function showBriefing(root: HTMLElement, mission: Mission): Promise<void>
 }
 
 /**
+ * The cargo, as a manifest: one row per file, the same +/- a `git status`
+ * would show. Full paths made a wall of text; the basename plus its line
+ * delta is what a caller actually needs standing here, and the HUD names
+ * crates the same way once the run starts.
+ */
+function manifest(mission: Mission): HTMLElement {
+  const files = mission.files.length;
+  const totalRemoved = mission.files.reduce((n, f) => n + f.removed, 0);
+
+  const wrap = el('div', 'text-align:left;');
+  const header = el(
+    'div',
+    'display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;',
+  );
+  header.appendChild(el('div', CSS.label, 'cargo manifest'));
+  header.appendChild(
+    el(
+      'div',
+      'color:#5c7180; font-size:11px;',
+      `${files} file${files === 1 ? '' : 's'}  ·  +${mission.linesAdded} -${totalRemoved}`,
+    ),
+  );
+  wrap.appendChild(header);
+
+  const list = el(
+    'div',
+    `max-height:168px; overflow-y:auto; border:1px solid #17222a; border-radius:2px;`,
+  );
+  mission.files.forEach((file, i) => {
+    const row = el(
+      'div',
+      `display:flex; align-items:center; gap:8px; padding:6px 9px;
+       background:${i % 2 ? 'rgba(255,255,255,.015)' : 'transparent'};`,
+    );
+    row.appendChild(el('div', 'color:#7dd3fc; font-size:10px; flex:0 0 auto;', '▣'));
+    row.appendChild(
+      el(
+        'div',
+        `flex:1; min-width:0; color:#c3d3d0; font-size:13px;
+         overflow:hidden; text-overflow:ellipsis; white-space:nowrap;`,
+        basename(file.name),
+      ),
+    );
+    row.appendChild(
+      el(
+        'div',
+        `flex:0 0 40px; text-align:right; font-size:12px;
+         color:${file.added ? '#4ade80' : '#3a4a52'};`,
+        `+${file.added}`,
+      ),
+    );
+    row.appendChild(
+      el(
+        'div',
+        `flex:0 0 40px; text-align:right; font-size:12px;
+         color:${file.removed ? '#f87171' : '#3a4a52'};`,
+        `-${file.removed}`,
+      ),
+    );
+    list.appendChild(row);
+  });
+  wrap.appendChild(list);
+
+  return wrap;
+}
+
+/**
  * What git does, in one line.
  *
  * Both halves of it, because the losing half is the one that costs something
@@ -149,20 +201,24 @@ function stakes(mission: Mission): HTMLElement {
   const wrap = el('div', '');
   const line = el(
     'div',
-    'font-size:13px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;',
+    'display:flex; gap:8px; justify-content:center; flex-wrap:wrap;',
   );
   const extreme = mission.rules.loss === 'delete' && !mission.sandbox;
-  const part = (colour: string, text: string): HTMLElement => el('span', `color:${colour};`, text);
+  const chip = (colour: string, text: string): HTMLElement =>
+    el(
+      'span',
+      `display:inline-block; padding:4px 10px; border:1px solid ${colour}44; border-radius:2px;
+       background:${colour}14; color:${colour}; font-size:11px; letter-spacing:.03em;
+       text-transform:uppercase;`,
+      text,
+    );
 
   if (mission.sandbox) {
-    line.appendChild(part('#6b8394', 'Sandbox — no git command runs either way.'));
+    line.appendChild(chip('#6b8394', 'Sandbox — no git command runs either way'));
   } else {
     line.append(
-      part('#4ade80', 'Carried out → committed.'),
-      part(
-        extreme ? '#f87171' : '#fbbf24',
-        extreme ? 'Left behind → DELETED FROM DISK.' : 'Left behind → unstaged.',
-      ),
+      chip('#4ade80', 'Carried out → committed'),
+      chip(extreme ? '#f87171' : '#fbbf24', extreme ? 'Left behind → deleted' : 'Left behind → unstaged'),
     );
   }
   wrap.appendChild(line);
@@ -173,9 +229,12 @@ function stakes(mission: Mission): HTMLElement {
   if (mission.rules.stash === 'persist') ruleNotes.push('stashed cargo stays staged');
   if (mission.rules.stash === 'off') ruleNotes.push('no stash cache');
   if (ruleNotes.length) {
-    wrap.appendChild(
-      el('div', 'color:#a78bfa; font-size:12px; margin-top:6px;', ruleNotes.join('  ·  ')),
+    const notes = el(
+      'div',
+      'display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:8px;',
     );
+    ruleNotes.forEach((note) => notes.appendChild(chip('#a78bfa', note)));
+    wrap.appendChild(notes);
   }
 
   return wrap;

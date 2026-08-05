@@ -38,7 +38,7 @@ function version() {
 }
 
 async function listCommands() {
-  console.log('\n  Git Commandos — git, but you have to earn it.\n');
+  console.log('\n  Git Commandos — a game interface of your git commands.\n');
   console.log('  Usage: gcmds <command> [options]\n');
   console.log('  Any command not listed below is handed to git untouched, so gcmds');
   console.log('  does everything git does — you just type gcmds instead.\n');

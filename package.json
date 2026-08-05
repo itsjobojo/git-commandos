@@ -1,6 +1,6 @@
 {
   "name": "git-commandos",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Git, but you have to earn it. A 3D extraction shooter CLI that wraps git and gates real commits behind gameplay.",
   "bin": {
     "gcmds": "./cli/index.mjs",

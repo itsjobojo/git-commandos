@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Git Commandos — a game that runs your git commands</title>
-  <meta name="description" content="gcmds is a CLI that wraps git. Run commit, push, or merge and it opens a 3D shooter in your browser — clear it and the real git command runs on your repo. Everything else passes straight through to git, untouched." />
+  <meta name="description" content="gcmds is a CLI that wraps git. Run commit and it opens a 3D shooter in your browser — clear it and the real git command runs on your repo. Everything else passes straight through to git, untouched." />
 
   <meta property="og:title" content="Git Commandos" />
-  <meta property="og:description" content="A CLI that wraps git. commit, push, and merge open a 3D shooter — clear it and the real command runs. Everything else passes straight through to git." />
+  <meta property="og:description" content="A CLI that wraps git. commit opens a 3D shooter — clear it and the real command runs. Everything else passes straight through to git." />
   <meta property="og:type" content="website" />
   <meta property="og:image" content="./public/og.jpg" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -31,11 +31,11 @@
     <div class="hero__reticle" aria-hidden="true"></div>
     <div class="hero__content">
       <img class="hero__logo reveal reveal--1" src="./public/logo.webp" alt="Git Commandos" width="420" height="280" />
-      <p class="hero__tag reveal reveal--2">An extraction game on top of git.</p>
+      <p class="hero__tag reveal reveal--2">A game interface of your git commands.</p>
       <p class="hero__sub reveal reveal--3">
-        <code>gcmds</code> is a layer on top of git. Type <code>commit</code>,
-        <code>push</code>, or <code>merge</code> and it opens a 3D shooter in
-        your browser — clear the level and it runs the real command. Die and lose work.
+        <code>gcmds</code> is a cli layer on top of git. Type
+        <code>commit</code> and it opens a 3D shooter in your browser — clear
+        the level and it runs the real command. Die and lose work.
       </p>
 
       <div class="terminal reveal reveal--4" data-terminal>
@@ -49,7 +49,7 @@
           </button>
         </div>
         <pre class="terminal__body"><code><span class="terminal__prompt">$</span> npm install -g git-commandos
-<span class="terminal__prompt">$</span> gcmds commit -m <span class="terminal__str">"earn it"</span></code></pre>
+<span class="terminal__prompt">$</span> gcmds commit -m <span class="terminal__str">"lets go"</span></code></pre>
       </div>
 
       <div class="hero__actions reveal reveal--5">
@@ -192,8 +192,6 @@
             <thead><tr><th>Command</th><th>Description</th></tr></thead>
             <tbody>
               <tr><td><code>gcmds commit -m "message"</code></td><td>Commit staged files — survive to ship them</td></tr>
-              <tr><td><code>gcmds push [remote] [branch]</code></td><td>Push commits to remote</td></tr>
-              <tr><td><code>gcmds merge &lt;branch&gt;</code></td><td>Merge a branch</td></tr>
               <tr><td><code>gcmds quick-run</code></td><td>Stage fake files and play a test round</td></tr>
               <tr><td><code>gcmds fake-files [--count=N]</code></td><td>Create and stage N fake <code>.ts</code> files</td></tr>
               <tr><td><code>gcmds play</code></td><td>Launch sandbox mode — no real git state</td></tr>
@@ -206,7 +204,7 @@
         </p>
         <p class="manual__note">
           Everything else — <code>status</code>, <code>log</code>,
-          <code>rebase</code>, whatever — goes straight to the real git,
+          <code>push</code>, whatever — goes straight to the real git,
           unmodified. Alias <code>git=gcmds</code> in your shell if you want it
           everywhere; git itself is never installed over or replaced, and
           <code>\git</code> skips the game on any single command.
@@ -247,9 +245,42 @@
       </div>
     </section>
 
+    <section class="section" id="coming-soon">
+      <div class="section__frame">
+        <p class="section__eyebrow">04 / COMING SOON</p>
+        <h2 class="section__title">More ways to lose work</h2>
+        <p class="section__intro">
+          Commit ships today. The rest of the git surface is still in the
+          briefing room — unchecked, untested, and coming for your repo.
+        </p>
+        <ul class="todo-list" aria-label="Upcoming commands">
+          <li class="todo-item">
+            <span class="todo-item__box" aria-hidden="true"></span>
+            <code>gcmds merge &lt;branch&gt;</code>
+            <span class="todo-item__note">Merge a branch</span>
+          </li>
+          <li class="todo-item todo-item--dread">
+            <span class="todo-item__box" aria-hidden="true"></span>
+            <code>gcmds rebase</code>
+            <span class="todo-item__note">oh god no</span>
+          </li>
+          <li class="todo-item">
+            <span class="todo-item__box" aria-hidden="true"></span>
+            <code>gcmds pull</code>
+            <span class="todo-item__note">Fetch and hope</span>
+          </li>
+          <li class="todo-item">
+            <span class="todo-item__box" aria-hidden="true"></span>
+            <code>gcmds push</code>
+            <span class="todo-item__note">Ship commits to remote</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
     <section class="section section--faq" id="faq">
       <div class="section__frame">
-        <p class="section__eyebrow">04 / FAQ</p>
+        <p class="section__eyebrow">05 / FAQ</p>
         <h2 class="section__title">Frequently asked, honestly answered</h2>
         <dl class="faq-list">
           <div class="faq-item">

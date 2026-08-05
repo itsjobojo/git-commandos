@@ -37,7 +37,7 @@ if (hero && reticle && !reduceMotion && matchMedia('(hover: hover) and (pointer:
 
 // Scroll reveals for section content.
 const observeTargets = document.querySelectorAll(
-  '.gallery-card, .manual__grid, .faq-list, .terminal--wide, .table-wrap'
+  '.gallery-card, .manual__grid, .faq-list, .todo-list, .terminal--wide, .table-wrap'
 );
 if (!reduceMotion && 'IntersectionObserver' in window) {
   observeTargets.forEach((el) => el.classList.add('js-observe'));
